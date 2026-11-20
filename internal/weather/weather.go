@@ -72,10 +72,11 @@ type cached struct {
 }
 
 type Client struct {
-	// 三个源各用不同超时：主源要被墙的时候 8 秒全耗在它身上，备用源就没时间了
+	// 各源各用不同超时：一个源被墙的时候 8 秒全耗在它身上，备用源就没时间了
 	om   *http.Client
 	wttr *http.Client
 	cn   *http.Client // 中国天气网：国内直连，不受代理影响
+	twc  *http.Client // The Weather Channel（苹果天气同源）
 
 	mu    sync.Mutex
 	cache map[string]cached // key -> 10 分钟内的结果（成功或失败）
@@ -97,6 +98,7 @@ func New() *Client {
 		om:      &http.Client{Timeout: 4 * time.Second},
 		wttr:    &http.Client{Timeout: 6 * time.Second},
 		cn:      &http.Client{Timeout: 5 * time.Second},
+		twc:     &http.Client{Timeout: 6 * time.Second},
 		cache:   map[string]cached{},
 		last:    map[string]Now{},
 		cnCodes: map[string]cnCodeEntry{},
@@ -273,15 +275,20 @@ func cnExtractVar(s, name string) string {
 	return ""
 }
 
-// cnTemp 解析温度并做物理范围校验。
+// cnTemp 解析中国天气网的温度字段，顺带挡掉「缺测」标记。
+//
 // 中国天气网用 999 表示缺测（实测宁波 cityDZ.temp 就是 999），
-// 直接把 999 当温度显示会变成「999° / 6°」这种鬼东西。
+// 直接把 999 当温度显示会变成「999° / 6°」这种鬼东西，靠 >= 60 的范围校验挡住。
+//
+// ⚠️ 这里【不能】把 0 判成无效。原来写的是 `v <= -60 || v >= 60 || v == 0`，
+//    那条 v == 0 直接导致 0°C 被当成缺测 —— 北京冬天 tempn="0" 是正常温度，
+//    却被退回成「当前温度」，界面上就成了「-0.3° / -0.3°」这种没意义的高低温。
 func cnTemp(s string) (float64, bool) {
 	v, err := strconv.ParseFloat(s, 64)
 	if err != nil {
 		return 0, false
 	}
-	if v <= -60 || v >= 60 || v == 0 {
+	if v <= -60 || v >= 60 {
 		return 0, false
 	}
 	return v, true
@@ -443,10 +450,43 @@ func (c *Client) fetchCN(ctx context.Context, city string) (Now, error) {
 	return now, nil
 }
 
-// fetch 先问国内源（最快最稳），不通再依次问 open-meteo 和 wttr.in。
+// fetch 按 TWC → 中国天气网 → open-meteo → wttr.in 的顺序问，第一个成功的就用。
+// TWC 排第一是因为它的数据最全（自带真实当日高低），中国天气网的高低温常年 999。
 func (c *Client) fetch(ctx context.Context, city string, lat, lon float64) (Now, error) {
+	// ① The Weather Channel（苹果天气同源）：一次请求就带全实况 + 真实当日高低，
+	//    国内可直连。放第一位是因为下面中国天气网的高低温经常是 999（缺测）。
+	nowTWC, errTWC := c.fetchTWC(ctx, city, lat, lon)
+	if errTWC == nil {
+		return nowTWC, nil
+	}
+
+	// ② 中国天气网：本地源，实况中文更地道，但 cityDZ 的最高温经常缺测
 	nowCN, errCN := c.fetchCN(ctx, city)
 	if errCN == nil {
+		// ★ 中国天气网经常把「当天最高温」给成 999（缺测，夜间尤其常见），fetchCN 会退回
+		//   成当前温度，于是出现 max <= min —— 实测宁波返回过 {"temp":4.4,"max":4.4,"min":7}
+		//   这种「最高温比最低温还低」的矛盾数据。
+		//
+		//   补问一次 open-meteo 拿真实日高低，但【必须加超时】：这个源在国内网络下经常
+		//   直接连不上，实测不设限会把一次 /api/weather 拖到 4.5 秒（正常 0.5 秒）。
+		//   1.5 秒拿不到就算了 —— 前端在 max <= min 时本来就不显示高低温。
+		//   失败后同样走 omDownUntil 熔断，30 分钟内不再试。
+		c.mu.Lock()
+		skipOM := time.Now().Before(c.omDownUntil)
+		c.mu.Unlock()
+
+		if nowCN.Max <= nowCN.Min && lat != 0 && lon != 0 && !skipOM {
+			omCtx, cancel := context.WithTimeout(ctx, 1500*time.Millisecond)
+			om, err := c.fetchOpenMeteo(omCtx, city, lat, lon)
+			cancel()
+			if err == nil && om.Max > om.Min {
+				nowCN.Max, nowCN.Min = om.Max, om.Min
+			} else {
+				c.mu.Lock()
+				c.omDownUntil = time.Now().Add(omBreak)
+				c.mu.Unlock()
+			}
+		}
 		return nowCN, nil
 	}
 
@@ -472,7 +512,7 @@ func (c *Client) fetch(ctx context.Context, city string, lat, lon float64) (Now,
 	if errW == nil {
 		return now, nil
 	}
-	return Now{}, fmt.Errorf("天气源都失败：中国天气网(%v) / open-meteo(%v) / wttr(%v)", errCN, errOM, errW)
+	return Now{}, fmt.Errorf("天气源都失败：TWC(%v) / 中国天气网(%v) / open-meteo(%v) / wttr(%v)", errTWC, errCN, errOM, errW)
 }
 
 func (c *Client) fetchOpenMeteo(ctx context.Context, city string, lat, lon float64) (Now, error) {

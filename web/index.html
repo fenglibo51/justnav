@@ -4432,10 +4432,23 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
         var w = j.weather;
         var cityEl = document.getElementById("ckCity");
         if (cityEl) cityEl.textContent = w.city || "";
-        document.getElementById("ckTemp").textContent = Math.round(w.temp) + "°";
+        // Math.round(-0.3) 在 JS 里得到 -0，把 -0 转字符串是 "0"，零下但不到半度会显示成
+        // 「0°」，看着像根本没零下。这里显式保留负号。
+        var ckT = function (v) {
+          var r = Math.round(v);
+          return (r === 0 && v < 0 ? "-0" : String(r)) + "\u00b0";
+        };
+        document.getElementById("ckTemp").textContent = ckT(w.temp);
         document.getElementById("ckText").textContent = w.text || "";
-        document.getElementById("ckHL").textContent =
-          (w.min != null ? Math.round(w.min) + "° / " : "") + (w.max != null ? Math.round(w.max) + "°" : "");
+        // 高低温只在【真的拿到】时显示。中国天气网经常把当天最高温给成 999（缺测），
+        // 后端找不到就退回当前温度，于是 max == min —— 显示成「-0.3° / -0.3°」纯属噪音。
+        // max < min 同理（数据源给反了或者只给了一半），一律不显示。
+        var hlEl = document.getElementById("ckHL");
+        if (hlEl) {
+          var hasHL = w.max != null && w.min != null && w.max > w.min;
+          hlEl.textContent = hasHL ? (ckT(w.min) + " / " + ckT(w.max)) : "";
+          hlEl.style.display = hasHL ? "" : "none";
+        }
         document.getElementById("ckIcon").innerHTML = wxIcon(w.code);
         ckCard.classList.remove("no-wx");
         if (ckWxTimer) clearTimeout(ckWxTimer);
