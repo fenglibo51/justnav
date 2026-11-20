@@ -506,6 +506,13 @@ body.locked .app,
 body.locked .palette,
 body.locked .sheet{display:none}
 
+/* 启动中：/api/auth/status 还没回来。主界面和登录框都先藏起来，只留壁纸背景，
+   否则未登录时会先闪一下主界面再跳登录页（2026-11-20）。 */
+body.booting .app,
+body.booting .palette,
+body.booting .sheet,
+body.booting .login{display:none}
+
 .login{
   position:fixed;inset:0;z-index:200;display:none;
   align-items:center;justify-content:center;padding:20px;
@@ -2298,7 +2305,7 @@ html:not([data-wall="none"]) .dlg-in:focus{
 
 </style>
 </head>
-<body>
+<body class="booting">
 
 <div class="wall"><div class="photo" id="wallPhoto"></div><div class="scrim"></div></div>
 
@@ -6825,10 +6832,14 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   }
 
   // 先问认证状态：没登录就显示登录框（背景壁纸照常加载）
+  // body 初始带 booting class，主界面/登录框都藏着，避免未登录时闪一下主界面。
+  // 万一 JS 中途挂掉，4 秒兜底解除，宁可露出来也不白屏。
   function boot() {
+    setTimeout(function () { document.body.classList.remove("booting"); }, 4000);
     fetch("/api/auth/status", { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
       .then(function (st) {
+        document.body.classList.remove("booting");
         if (st && st.enabled && !st.authed) {
           showLogin();
           loadWallpaperBackground();
@@ -6840,6 +6851,7 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
         startApp();
       })
       .catch(function () {
+        document.body.classList.remove("booting");
         // 后端还没有认证接口（旧版本）→ 直接进
         paintMe();
         hideLogin();

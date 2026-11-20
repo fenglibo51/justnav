@@ -77,6 +77,8 @@ grep -Fq -- 'func (s *Server) authGate' internal/api/api.go && ok "路由门禁"
 grep -Fq -- '"/api/items":' internal/api/api.go && bad "/api/items 出现在白名单里 —— 千万别" || ok "业务接口不在白名单"
 grep -Fq -- 'function showLogin()' "$WEB" && ok "登录页" || bad "缺少登录页"
 grep -Fq -- '/api/auth/login' "$WEB" && ok "登录请求" || bad "缺少登录请求"
+grep -Fq -- 'body.booting .app' "$WEB" && ok "启动态藏主界面（未登录不再闪一下主界面）" || bad "缺少 booting 启动态，未登录会先闪主界面"
+grep -Fq -- '<body class="booting">' "$WEB" && ok "body 初始带 booting" || bad "body 没带 booting 初始态"
 grep -Fq -- 'id="btnLogout"' "$WEB" && ok "退出登录入口" || bad "缺少退出登录"
 
 echo "== 3.7 多账号"
