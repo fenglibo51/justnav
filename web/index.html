@@ -4451,11 +4451,34 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
         }
         document.getElementById("ckIcon").innerHTML = wxIcon(w.code);
         ckCard.classList.remove("no-wx");
-        if (ckWxTimer) clearTimeout(ckWxTimer);
-        ckWxTimer = setTimeout(loadWeather, 10 * 60 * 1000);   // 10 分钟刷一次
+        ckWxAt = Date.now();
+        scheduleWeather();
       })
-      .catch(function () { ckCard.classList.add("no-wx"); });
+      .catch(function () { ckCard.classList.add("no-wx"); scheduleWeather(); });
   }
+
+  /* 天气多久拉一次。
+     后端缓存也是 30 分钟，两边对齐 —— 拉得比缓存快只是白打本地接口。
+     为什么不是「一天一次」：这里拿到的是【当前实测温度】，一天只拉一次的话
+     早上 8 点的 6° 会一直显示到晚上（宁波日较差 6°~13°），一看就是错的。
+     真正一天不变的只有「当日最高/最低」，那个由后端按「同一天」判断缓存
+     （见 weather.go 的 Current），跨天会自动重取。 */
+  var CK_WX_PERIOD = 30 * 60 * 1000;
+  var ckWxAt = 0;                  // 上次成功拉取的时间戳
+  function scheduleWeather() {
+    if (ckWxTimer) clearTimeout(ckWxTimer);
+    ckWxTimer = setTimeout(function () {
+      // 页面在后台就不拉：用户看不见，白耗一次上游请求（TWC 那个 key 有限流风险）
+      if (document.hidden) { scheduleWeather(); return; }
+      loadWeather();
+    }, CK_WX_PERIOD);
+  }
+  // 从后台切回前台时，数据要是已经过期一个周期以上就立刻补一次，
+  // 别让用户盯着几小时前的温度
+  document.addEventListener("visibilitychange", function () {
+    if (document.hidden) return;
+    if (!ckWxAt || Date.now() - ckWxAt > CK_WX_PERIOD) loadWeather();
+  });
 
   // 城市设置
   document.getElementById("citySave").addEventListener("click", function () {

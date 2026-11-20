@@ -35,8 +35,11 @@ const (
 	forecastURL = "https://api.open-meteo.com/v1/forecast"
 	geocodeURL  = "https://geocoding-api.open-meteo.com/v1/search"
 	wttrURL     = "https://wttr.in"
-	// 天气变化不快，10 分钟足够了，别把外部接口打穿
-	cacheTTL = 10 * time.Minute
+	// 天气变化不快，30 分钟足够：实况温度在这段里最多变 1~2 度。
+	// 再长就会出现「傍晚还显示早上的温度」（宁波 6°~13° 这种日较差，
+	// 一天只拉一次会很离谱）。跨天必须重取 —— 高低温每天都不一样，
+	// 昨天的数据不能拿来用，这个在 Current() 里按「同一天」判断。
+	cacheTTL = 30 * time.Minute
 	// 失败结果只记 1 分钟：1 分钟内不重复打上游，过了就再试（上游恢复得快）
 	failTTL = time.Minute
 	// 上次成功的数据最多撑 6 小时，超过就当没有
@@ -110,7 +113,11 @@ func (c *Client) Current(ctx context.Context, city string, lat, lon float64) (No
 
 	c.mu.Lock()
 	if v, ok := c.cache[key]; ok {
-		if v.fail == nil && time.Since(v.at) < cacheTTL {
+		// 跨天就作废：高低温是「今天」的，昨天缓存下来的最高/最低拿到今天显示是错的。
+		// 时间上可能只过了几十分钟（比如 23:50 拉的、00:10 再来问），但日期变了。
+		nowT := time.Now()
+		sameDay := v.at.Year() == nowT.Year() && v.at.YearDay() == nowT.YearDay()
+		if v.fail == nil && sameDay && time.Since(v.at) < cacheTTL {
 			c.mu.Unlock()
 			return v.now, nil
 		}
