@@ -82,6 +82,8 @@ grep -Fq -- '.pw-eye{' "$WEB" && ok "小眼睛样式在位" || bad "小眼睛缺
 grep -Fq -- 'flex:0 0 100%;justify-content:flex-end' "$WEB" && ok "设置页账号按钮组独占一行（长用户名不再挡住改名/改密）" || bad "账号按钮组还会被长名字挤掉"
 grep -Fq -- 'ic:groupIcon(s.g)' "$WEB" && ok "手机 tabbar 图标走通用规则（用户自建分组也认得出）" || bad "tabbar 又硬编码作者的分组图标了"
 grep -Fq -- 'GROUP_RULES = [' "$WEB" && ok "分组图标关键词规则在位（28 条）" || bad "GROUP_RULES 没了，自建分组全变 folder"
+grep -Fq -- 'if (!secs.length) return;' "$WEB" && bad "alignClock 又在空库早退（时钟会甩到左上角）" || ok "alignClock 空库不早退（新用户零分组时钟也在右上）"
+grep -Fq -- 'top:82px;right:8px;width:240px;' "$WEB" && ok ".right-rail 有兜底定位（JS 算不出来也不跑偏）" || bad ".right-rail 没兜底定位了"
 grep -Fq -- 'body.booting .app' "$WEB" && ok "启动态藏主界面（未登录不再闪一下主界面）" || bad "缺少 booting 启动态，未登录会先闪主界面"
 grep -Fq -- '<body class="booting">' "$WEB" && ok "body 初始带 booting" || bad "body 没带 booting 初始态"
 grep -Fq -- 'var DATA = [];' "$WEB" && ok "DATA 不带演示数据（开源不泄漏作者服务清单）" || bad "DATA 里又塞演示数据了"

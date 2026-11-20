@@ -869,7 +869,16 @@ body.drag-mode .drag-done{opacity:1;pointer-events:auto;transform:translateY(0)}
   position:absolute;z-index:6;
   display:flex;flex-direction:column;gap:12px;
   pointer-events:none;                 /* 整栏不挡鼠标，内部再单独开启 */
+  /* 兜底位置/宽度：真实值由 alignClock() 覆盖。绝对定位元素在没有 top/right 时
+     会停在「静态位置」——.app 是 flex row，那个静态位置就是左上角。空库（还没有任何
+     分组）时 alignClock 以前会直接 return，于是时钟卡就摆在左上角，开源新用户第一次
+     打开就是这个错乱的样子。这里给兜底值，JS 再取不到数据也不会跑偏。 */
+  top:82px;right:8px;width:240px;
 }
+
+/* 空库时还没有 .grid，alignClock 拿不到列宽；给右栏一个和卡片列一致的宽度，
+   别让时钟卡被内容撑成一条 */
+.right-rail{min-width:210px;max-width:320px}
 .right-rail > *{pointer-events:auto}
 .right-rail .clockcard{
   position:static;top:auto;right:auto;
@@ -4278,8 +4287,10 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     var main = document.querySelector(".main");
     var secBox = document.getElementById("sections");
     if (!rail || !main || !secBox) return;
-    var secs = secBox.querySelectorAll(".sect");
-    if (!secs.length) return;
+    // 空库（还没有任何分组/卡片）时【绝不能】在这里 return：
+    // .right-rail 是绝对定位，没有 top/right 就停在 flex 的静态位置 = 界面左上角，
+    // 看起来就是「时钟卡跑到左上角」。开源用户第一次打开、还没加任何服务时必踩。
+    // 继续往下算，网格列宽拿不到就交给 CSS 的兜底宽度。
     var mr = main.getBoundingClientRect(), sr = secBox.getBoundingClientRect();
     var grid = secBox.querySelector(".grid");
     var colW = 0;
