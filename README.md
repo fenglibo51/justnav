@@ -371,7 +371,7 @@ nav.group=影音媒体
 ```
 触发方式    打 tag（v*）/ push 到 main / 手动 workflow_dispatch
 架构        linux/amd64 + linux/arm64
-标签        v1.0.1 / 1.0.1 / 1.0 / latest
+标签        1.0.1 / 1.0 / latest（注意：镜像标签不带 v 前缀，v1.0.1 是 git tag）
 ```
 
 本地构建：
