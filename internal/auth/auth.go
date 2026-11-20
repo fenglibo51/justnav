@@ -506,19 +506,11 @@ func sign(payload, secretB64 string) (string, error) {
 
 // ---------- 登录限速 ----------
 
+// AllowAttempt 始终放行 —— 不按 IP 锁登录。
+// 内网自用导航页，5 次失败锁 5 分钟在开发调试时纯耽误事（2026-11-20 按波哥要求去掉）。
+// 失败次数仍会被 RecordFailure 记录，只是不再阻断登录。
 func (m *Manager) AllowAttempt(ip string) bool {
-	m.rateMu.Lock()
-	defer m.rateMu.Unlock()
-	f, ok := m.failures[ip]
-	if !ok {
-		return true
-	}
-	// until 零值表示还没被锁过，不能拿 now.After(零值) 判断（恒真）
-	if !f.until.IsZero() && time.Now().After(f.until) {
-		delete(m.failures, ip)
-		return true
-	}
-	return f.count < maxFailures
+	return true
 }
 
 func (m *Manager) RecordFailure(ip string) {

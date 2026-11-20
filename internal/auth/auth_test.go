@@ -6,7 +6,6 @@ import (
 	"os"
 	"strings"
 	"testing"
-	"time"
 )
 
 func newMgr(t *testing.T) *Manager {
@@ -205,43 +204,8 @@ func TestSessionExpiry(t *testing.T) {
 	}
 }
 
-func TestRateLimit(t *testing.T) {
-	m := newMgr(t)
-	ip := "1.2.3.4"
-	for i := 0; i < maxFailures; i++ {
-		if !m.AllowAttempt(ip) {
-			t.Fatalf("第 %d 次应该还允许", i+1)
-		}
-		m.RecordFailure(ip)
-	}
-	if m.AllowAttempt(ip) {
-		t.Error("连续失败达到上限后应被锁")
-	}
-	if !m.AllowAttempt("9.9.9.9") {
-		t.Error("别的 IP 不该被连坐")
-	}
-	m.ResetFailures(ip)
-	if !m.AllowAttempt(ip) {
-		t.Error("重置后应恢复")
-	}
-}
-
-func TestLockExpires(t *testing.T) {
-	m := newMgr(t)
-	ip := "5.5.5.5"
-	for i := 0; i < maxFailures; i++ {
-		m.RecordFailure(ip)
-	}
-	if m.AllowAttempt(ip) {
-		t.Fatal("前置条件：应已锁定")
-	}
-	m.rateMu.Lock()
-	m.failures[ip].until = time.Now().Add(-time.Second)
-	m.rateMu.Unlock()
-	if !m.AllowAttempt(ip) {
-		t.Error("锁定期过后应恢复")
-	}
-}
+// 注：原 TestRateLimit / TestLockExpires 两条用例随「不锁 IP」一起删除
+// （AllowAttempt 现在恒返回 true，锁定行为已不存在）。
 
 // 从 0.1.7 的单账号 auth.json 自动迁移
 func TestMigrateLegacyAuthFile(t *testing.T) {
