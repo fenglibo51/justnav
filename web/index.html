@@ -2829,40 +2829,11 @@ html:not([data-wall="none"]) .dlg-in:focus{
            'stroke-linecap="round" stroke-linejoin="round">' + (I[k] || I.grid) + '</svg>';
   }
 
-  var DATA = [
-    { g:"影音媒体", items:[
-      { n:"Plex",        ic:"play",  h:1, ii:"192.168.1.10:32400", oe:"plex.example.com",   on:1, tag:"主看" },
-      { n:"Komga",       ic:"book",  h:1, ii:"192.168.1.10:25600", oe:"komga.example.com",  on:1 },
-      { n:"Juku Plus",   ic:"film",  h:4, ii:"192.168.1.10:8510",  oe:"",                   on:1, tag:"自建" },
-      { n:"Byte Muse",   ic:"photo", h:3, ii:"192.168.1.10:8090",  oe:"",                   on:1 }
-    ]},
-    { g:"下载与存储", items:[
-      { n:"qBittorrent",  ic:"down",   h:2, ii:"192.168.1.10:8080",  oe:"qb.example.com",   on:1 },
-      { n:"Transmission", ic:"magnet", h:2, ii:"192.168.1.10:9091",  oe:"",                 on:1 },
-      { n:"CloudDrive2",  ic:"cloud",  h:1, ii:"192.168.1.10:19798", oe:"",                 on:1 },
-      { n:"BookLore",     ic:"book",   h:4, ii:"192.168.1.10:8300",  oe:"",                 on:0 }
-    ]},
-    { g:"家庭与网络", items:[
-      { n:"Home Assistant", ic:"home",   h:2, ii:"192.168.1.10:8123",  oe:"ha.example.com",     on:1, tag:"常用" },
-      { n:"mtPhotos",       ic:"photo",  h:3, ii:"192.168.1.10:8063",  oe:"photos.example.com", on:1 },
-      { n:"Lucky",          ic:"shield", h:2, ii:"192.168.1.10:16601", oe:"",                   on:1 },
-      { n:"Portainer",      ic:"box",    h:1, ii:"192.168.1.10:9000",  oe:"",                   on:1 }
-    ]},
-    { g:"开发工具", items:[
-      { n:"Hermes",      ic:"term",  h:4, ii:"192.168.1.10:8787", oe:"hermes.example.com", on:1 },
-      { n:"n8n",         ic:"flow",  h:3, ii:"192.168.1.10:5678", oe:"",                   on:1 },
-      { n:"Code Server", ic:"code",  h:1, ii:"192.168.1.10:8443", oe:"",                   on:1 },
-      { n:"WorkBuddy",   ic:"chip",  h:4, ii:"192.168.1.10:7863", oe:"",                   on:1 },
-      { n:"EbookForge",  ic:"book",  h:3, ii:"192.168.1.10:8505", oe:"",                   on:0 },
-      { n:"Stock",       ic:"chart", h:2, ii:"192.168.1.10:8502", oe:"",                   on:1 }
-    ]}
-  ];
-
-  var INBOX = [
-    { n:"Memos",      ic:"note", ii:"192.168.1.10:5230", g:"家庭与网络" },
-    { n:"MariaDB",    ic:"box",  ii:"192.168.1.10:3306", g:"开发工具" },
-    { n:"Tv Manager", ic:"tv",   ii:"192.168.1.10:8521", g:"开发工具" }
-  ];
+  // 空数组起步：真实数据由 applyServerItems() 从 /api/items 灌进来。
+  // 以前这里塞了一整套演示数据，开源出去等于把作者自己的服务清单（Plex/qBittorrent/
+  // WorkBuddy/Stock + 内网端口）发给每个新用户，而且每次刷新都会先闪一下那排假卡片
+  // 再被真数据替换（实测 t=144ms 假数据 / t=424ms 真数据）。2026-11-20 清空。
+  var DATA = [];
 
 
   // 壁纸：真实 Bing 每日 UHD（本地内嵌 webp 1600w，原型演示用）
@@ -5137,6 +5108,8 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       });
     }
     buildNav(); buildTabbar(); render();
+    // 数据到位才放行首屏（配合 boot() 里不提前解除 booting）。2026-11-20
+    document.body.classList.remove("booting");
   }
 
   function loadWallpaper() {
@@ -6839,8 +6812,8 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     fetch("/api/auth/status", { credentials: "same-origin" })
       .then(function (r) { return r.json(); })
       .then(function (st) {
-        document.body.classList.remove("booting");
         if (st && st.enabled && !st.authed) {
+          document.body.classList.remove("booting");
           showLogin();
           loadWallpaperBackground();
           return;
@@ -6848,6 +6821,8 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
         ME = (st && st.user) || null;
         paintMe();
         hideLogin();
+        // 不在这里解除 booting：等 applyServerItems() 拿到真数据再显示，
+        // 否则会先画一帧「空列表」再跳成真实内容。2026-11-20
         startApp();
       })
       .catch(function () {
@@ -6894,8 +6869,9 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       })
       .then(function () { loadWeather(); return loadWallpaper(); })
       .catch(function (e) {
-        // 没有后端 → 保持演示数据，不报错、不白屏
+        // 没有后端 → 不报错、不白屏，放行首屏（此时 DATA 是空的，不是演示数据了）
         setMode(false);
+        document.body.classList.remove("booting");
         console.log("[justnav] 离线演示模式：", e.message || e);
       });
   }
