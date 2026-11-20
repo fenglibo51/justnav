@@ -105,6 +105,18 @@ func New(dataDir, legacyUser, password string) (m *Manager, gen string, err erro
 	}
 	loadErr := m.load()
 	if loadErr != nil && !errors.Is(loadErr, os.ErrNotExist) {
+		// 权限不足时给一条能照着做的提示。不这么做的话用户只看到
+		// 「初始化认证失败: open /data/users.json: permission denied」，
+		// 以为是账号密码问题，实际是文件 owner 和运行 uid 对不上。2026-11-20
+		if errors.Is(loadErr, os.ErrPermission) {
+			return nil, "", fmt.Errorf(
+				"读不到账号文件 %s（权限不足）\n"+
+					"  容器换过运行用户，而这个文件还是上一次以别的 uid 创建的。常见原因：镜像加了 USER、\n"+
+					"  compose 加了 user:、或换成了 rootless docker。账号本身没坏。\n"+
+					"  修法（宿主机执行，把路径换成你的数据目录）：\n"+
+					"      sudo chown -R $(id -u):$(id -g) <数据目录>\n"+
+					"  或让容器沿用原来那个用户启动。", m.path)
+		}
 		return nil, "", loadErr
 	}
 
@@ -113,6 +125,12 @@ func New(dataDir, legacyUser, password string) (m *Manager, gen string, err erro
 		if err := m.migrateLegacy(filepath.Join(dataDir, "auth.json")); err != nil {
 			return nil, "", err
 		}
+	}
+
+	// 兼容旧版本留下的 0600：既然这次读到了，就顺手放宽成 644，
+	// 免得以后容器换个运行用户又读不到（不用用户手动 chmod）。2026-11-20
+	if len(m.d.Users) > 0 {
+		_ = os.Chmod(m.path, 0o644)
 	}
 
 	// 还没有任何账号 → 用环境变量，没有就 admin/admin 创建第一个管理员
@@ -136,6 +154,18 @@ func New(dataDir, legacyUser, password string) (m *Manager, gen string, err erro
 	// ⚠️ 2026-11-20 改：原来这里会「环境变量有密码就重置管理员密码」，
 	// 结果是每次重启都把界面上改过的密码悄悄覆盖回去，
 	// 「设置 → 改密码」等于白改。环境变量的语义应该只是「首次初始化密码」。
+
+	// 数据目录可写自检：能读不代表能写。目录只读挂载时登录一切正常，
+	// 等到用户改密码才失败，而且错误藏在界面里很难查。启动时就说清楚。2026-11-20
+	if f, werr := os.CreateTemp(dataDir, ".write-probe-*"); werr != nil {
+		return nil, "", fmt.Errorf(
+			"数据目录 %s 不可写：登录可以用，但改密码/加账号会失败。\n"+
+				"  检查 compose 的 volumes 是不是误加了 :ro，或目录 owner 和容器 uid 不一致。%w", dataDir, werr)
+	} else {
+		probe := f.Name()
+		f.Close()
+		os.Remove(probe)
+	}
 	return m, "", nil
 }
 
@@ -214,7 +244,12 @@ func (m *Manager) save() error {
 		return err
 	}
 	tmp.Close()
-	_ = os.Chmod(name, 0o600)
+	// 0644 而不是 0600：Os.CreateTemp 默认就是 0600，等于把账号文件锁死给
+	// 创建进程的 uid。容器一旦不是以同一个 uid 跑（镜像加了 USER、compose 加了
+	// user:、或者换了 rootless docker），就 open users.json: permission denied，
+	// 进程直接退不出服务，用户看到的就是「账号密码都对但登录不了」。
+	// 里面是 PBKDF2 哈希不是明文，644 可接受。2026-11-20
+	_ = os.Chmod(name, 0o644)
 	return os.Rename(name, m.path)
 }
 

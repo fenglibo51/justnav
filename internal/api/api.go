@@ -1043,13 +1043,27 @@ func decodeJSON(r *http.Request, dst any) error {
 	return dec.Decode(dst)
 }
 
+// statusWriter 只为日志记状态码，其余行为全部透传给原 ResponseWriter。
+type statusWriter struct {
+	http.ResponseWriter
+	code int
+}
+
+func (s *statusWriter) WriteHeader(code int) {
+	s.code = code
+	s.ResponseWriter.WriteHeader(code)
+}
+
 func withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
-		next.ServeHTTP(w, r)
+		sw := &statusWriter{ResponseWriter: w, code: http.StatusOK}
+		next.ServeHTTP(sw, r)
 		// 静态资源不刷日志，只记 API
 		if strings.HasPrefix(r.URL.Path, "/api/") {
-			log.Printf("%s %s %s", r.Method, r.URL.Path, time.Since(start).Round(time.Millisecond))
+			// 带状态码：以前只记方法和耗时，「登录失败到底是 401 还是 200 但
+			// cookie 没存住」完全看不出来，排查只能靠猜。2026-11-20
+			log.Printf("%s %s %d %s", r.Method, r.URL.Path, sw.code, time.Since(start).Round(time.Millisecond))
 		}
 	})
 }
