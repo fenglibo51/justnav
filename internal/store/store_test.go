@@ -165,18 +165,20 @@ func TestGroupOrder(t *testing.T) {
 	dir := t.TempDir()
 	s := New(dir)
 	_ = s.Load()
+	// 自带分组，不依赖 defaultData 里的预置值（2026-11-20 起默认分组为空）
+	_ = s.AddGroup("A组")
 	_ = s.AddGroup("C组")
 	_ = s.AddGroup("D组")
 
-	if err := s.SetGroupOrder([]string{"D组", "影音媒体"}); err != nil {
+	if err := s.SetGroupOrder([]string{"D组", "A组"}); err != nil {
 		t.Fatal(err)
 	}
 	got := s.Snapshot().Groups
-	if got[0] != "D组" || got[1] != "影音媒体" {
+	if got[0] != "D组" || got[1] != "A组" {
 		t.Errorf("前两位顺序不对: %v", got)
 	}
 	// 未提及的分组不能丢
-	if !contains(got, "C组") || !contains(got, "开发工具") {
+	if !contains(got, "C组") {
 		t.Errorf("未提及的分组丢失了: %v", got)
 	}
 }

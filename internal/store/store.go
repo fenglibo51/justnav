@@ -648,8 +648,11 @@ func DefaultEngines() []Engine {
 func defaultData() Data {
 	return Data{
 		Version: schemaVersion,
-		Groups:  []string{"影音媒体", "下载与存储", "家庭与网络", "开发工具"},
-		Items:   []Item{},
+		// 新账号不预置任何分组：以前这里写死了作者的四个分组（影音媒体/下载与存储/
+		// 家庭与网络/开发工具），开源出去等于把作者的习惯当成所有人的默认值，
+		// 新用户进来看到四个空分类更困惑。分组由用户添加服务时自己建。2026-11-20
+		Groups: []string{},
+		Items:  []Item{},
 		Settings: Settings{
 			NetMode:  "in",
 			Theme:    "glass",

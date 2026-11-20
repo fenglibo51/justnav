@@ -2487,9 +2487,9 @@ html:not([data-wall="none"]) .dlg-in:focus{
     <div class="scroll" id="scroll">
       <div id="sections"></div>
       <div class="empty" id="empty">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
-        <b>没有匹配的服务</b>
-        <span>换个关键词，或者到「待收录」看看新发现的服务</span>
+        <svg id="emptyIcon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>
+        <b id="emptyTitle">没有匹配的服务</b>
+        <span id="emptyHint">换个关键词，或者到「待收录」看看新发现的服务</span>
       </div>
     </div>
 
@@ -3478,6 +3478,30 @@ html:not([data-wall="none"]) .dlg-in:focus{
       (size === "normal" && it.tag ? '<span class="tag">' + it.tag + '</span>' : '') + '</div>' +
       '</div>';
   }
+
+  // 空态分三种，文案/图标各不一样（2026-11-20）：
+  //   search —— 搜索没命中，提示换关键词
+  //   group  —— 有数据但当前分组是空的，提示换分组或添加
+  //   none   —— 一条数据都没有（全新部署），提示添加和去「待收录」捞 Docker 容器
+  var EMPTY_ICONS = {
+    search: '<circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/>',
+    group:  '<path d="M3.5 7.5A2 2 0 0 1 5.5 5.5h4l2 2.5h7a2 2 0 0 1 2 2v7.5a2 2 0 0 1-2 2h-13a2 2 0 0 1-2-2z"/>',
+    none:   '<circle cx="12" cy="12" r="8.5"/><path d="M12 8.2v7.6M8.2 12h7.6"/>'
+  };
+  var EMPTY_TEXT = {
+    search: ["没有匹配的服务", "换个关键词试试"],
+    group:  ["这个分组还没有服务", "换个分组看看，或者点右上角的 + 添加一个"],
+    none:   ["还没有添加服务", "点右上角的 + 添加第一个，或去「待收录」收录 Docker 扫到的容器"]
+  };
+  function paintEmpty(q) {
+    var kind = q ? "search" : (DATA.length ? "group" : "none");
+    var ico = document.getElementById("emptyIcon");
+    if (ico) ico.innerHTML = EMPTY_ICONS[kind];
+    var t = document.getElementById("emptyTitle"), h = document.getElementById("emptyHint");
+    if (t) t.textContent = EMPTY_TEXT[kind][0];
+    if (h) h.textContent = EMPTY_TEXT[kind][1];
+  }
+
   function render(){
     var q = state.q.trim().toLowerCase();
     var groups = DATA.filter(function(s){ return state.group === "__all" || s.g === state.group; });
@@ -3494,6 +3518,7 @@ html:not([data-wall="none"]) .dlg-in:focus{
         '<div class="grid">' + items.map(cardHTML).join("") + '</div></section>';
     });
     elSections.innerHTML = html;
+    if (!shown) paintEmpty(q);
     elEmpty.style.display = shown ? "none" : "flex";
     elSections.querySelectorAll(".card").forEach(function (c) {
       c.addEventListener("click", function (e) {

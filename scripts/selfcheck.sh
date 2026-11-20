@@ -79,6 +79,8 @@ grep -Fq -- 'function showLogin()' "$WEB" && ok "登录页" || bad "缺少登录
 grep -Fq -- '/api/auth/login' "$WEB" && ok "登录请求" || bad "缺少登录请求"
 grep -Fq -- 'body.booting .app' "$WEB" && ok "启动态藏主界面（未登录不再闪一下主界面）" || bad "缺少 booting 启动态，未登录会先闪主界面"
 grep -Fq -- '<body class="booting">' "$WEB" && ok "body 初始带 booting" || bad "body 没带 booting 初始态"
+grep -Fq -- 'var DATA = [];' "$WEB" && ok "DATA 不带演示数据（开源不泄漏作者服务清单）" || bad "DATA 里又塞演示数据了"
+grep -Fq -- 'function paintEmpty(' "$WEB" && ok "空态分三种（全新/空分组/搜索无果）" || bad "缺少 paintEmpty，新用户会看到「没有匹配的服务」"
 grep -Fq -- 'id="btnLogout"' "$WEB" && ok "退出登录入口" || bad "缺少退出登录"
 
 echo "== 3.7 多账号"
