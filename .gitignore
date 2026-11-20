@@ -1,0 +1,18 @@
+# 运行时数据：壁纸缓存与导航条目
+/data/
+/data
+nav.json
+
+# 编译产物
+/justnav
+justnav
+/bin/
+/dist/
+*.exe
+
+# 临时文件
+*.tmp
+.DS_Store
+
+# 本地环境
+.env

@@ -1,0 +1,45 @@
+services:
+  justnav:
+    image: justnav:local
+    container_name: justnav
+    restart: unless-stopped
+    ports:
+      - "8522:8522"
+    environment:
+      TZ: Asia/Shanghai
+      JUSTNAV_PORT: "8522"
+      JUSTNAV_DATA_DIR: /data
+      JUSTNAV_SITE_NAME: JustNav
+      JUSTNAV_WALLPAPER: "true"
+      JUSTNAV_WALLPAPER_KEEP_DAYS: "30"
+      JUSTNAV_WALLPAPER_MAX_BYTES: "314572800"
+      JUSTNAV_PROBE: "true"
+      JUSTNAV_PROBE_INTERVAL_SEC: "60"
+      JUSTNAV_PROBE_TIMEOUT_SEC: "4"
+      JUSTNAV_PROBE_THRESHOLD: "2"
+      JUSTNAV_PROBE_INSECURE: "true"
+      # 直接挂 docker socket(2026-11-13 起,不再用 docker-socket-proxy 旁车)
+      # 不写 JUSTNAV_DOCKER_HOST 也行:程序发现 /var/run/docker.sock 会自动用它
+      JUSTNAV_DOCKER_HOST: "unix:///var/run/docker.sock"
+      JUSTNAV_DOCKER_SCAN_ALL: "true"
+      # 内网地址:给「待收录」拼候选地址用(走反代时不能拿域名拼)
+      # ⚠️ 改成你自己 NAS / 主机的内网地址
+      JUSTNAV_INTERNAL_HOST: "192.168.1.10"
+      # 登录认证
+      JUSTNAV_AUTH: "true"
+      JUSTNAV_USER: admin
+      # 可选。只在「一个账号都没有」的首次启动时用于创建管理员:
+      #   留空  → 默认 admin / admin(登录后请立刻在设置里改掉)
+      #   有值  → 用它作为初始密码
+      # 已有账号后这个变量不再生效,改密码走「设置 → 改密」。
+      JUSTNAV_PASSWORD: "${JUSTNAV_PASSWORD:-}"
+      # 走 HTTPS 反代时改成 true(cookie 加 Secure)
+      JUSTNAV_COOKIE_SECURE: "false"
+    volumes:
+      - ./data:/data:rw
+      # ⚠️ 挂 socket 等于把宿主机 Docker 控制权交给容器(约等于 root)。
+      #    本项目定位「本机 / 内网自用」,所以默认直挂,少一个容器、少一层配置。
+      #    要暴露公网、或者不放心,请自行换成只读旁车代理:
+      #      docker-socket-proxy(只放行 /containers 的 GET)
+      #    然后把环境变量改成 JUSTNAV_DOCKER_HOST=tcp://docker-proxy:2375
+      - /var/run/docker.sock:/var/run/docker.sock
