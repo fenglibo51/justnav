@@ -535,6 +535,20 @@ body.locked .login{display:flex}
 .login .fld{margin-bottom:12px}
 .login .fld > span{font-size:11.5px;color:var(--muted)}
 .login .dlg-in{min-height:42px;font-size:14px}
+/* 密码框右侧小眼睛：点一下在明文/圆点之间切换。父级是 <label>，
+   点按钮会被 label 转发成「聚焦 input」，所以 JS 里 mousedown 要 preventDefault */
+.pw-wrap{position:relative;display:block}
+.pw-wrap .dlg-in{padding-right:42px}
+.pw-eye{
+  position:absolute;right:5px;top:50%;transform:translateY(-50%);
+  width:32px;height:32px;display:flex;align-items:center;justify-content:center;
+  border:0;background:none;padding:0;border-radius:8px;cursor:pointer;
+  color:var(--faint);transition:color .15s,background .15s;
+}
+.pw-eye:hover{color:var(--ink);background:var(--glass-2)}
+.pw-eye:focus-visible{outline:2px solid var(--accent);outline-offset:1px}
+.pw-eye.on{color:var(--accent)}
+.pw-eye svg{width:18px;height:18px;display:block}
 .login-remember{
   display:flex;align-items:center;gap:8px;margin:14px 0 4px;
   font-size:12.5px;color:var(--muted);cursor:pointer;user-select:none;
@@ -569,18 +583,21 @@ body.locked .login{display:flex}
 
 /* ---------- 账号 ---------- */
 .tp-account{
-  display:flex;align-items:center;gap:6px;padding:4px 8px 8px;min-width:0;
+  display:flex;align-items:center;gap:6px;flex-wrap:wrap;padding:4px 8px 8px;min-width:0;
 }
+/* 名字长了以前是 ellipsis 截断，但按钮组在同一行会被挤出去/被挡住。
+   现在允许换行：名字和角色徽章占第一行（超长就在自己那一行内折行），
+   按钮组 flex:0 0 100% 强制另起一行靠右。 */
 .tp-account .who{
-  font-size:12px;color:var(--muted);min-width:0;overflow:hidden;
-  text-overflow:ellipsis;white-space:nowrap;
+  font-size:12px;color:var(--muted);flex:1 1 0;min-width:0;
+  overflow-wrap:anywhere;word-break:break-word;
 }
 .tp-account .who b{color:var(--ink);font-weight:600}
 .tp-account .role{
   font-size:9.5px;padding:1px 5px;border-radius:5px;flex:0 0 auto;
   border:1px solid rgba(110,140,255,.4);color:var(--accent-ink);
 }
-.tp-account .sp{margin-left:auto;display:flex;gap:5px;flex:0 0 auto}
+.tp-account .sp{margin-left:auto;display:flex;gap:5px;flex:0 0 100%;justify-content:flex-end}
 .tp-mini{
   min-height:26px;padding:0 8px;border-radius:7px;cursor:pointer;font-family:inherit;
   font-size:11.5px;background:var(--glass-2);border:1px solid var(--line);color:var(--muted);
@@ -1720,6 +1737,8 @@ html[data-theme="paper"] .palette,html[data-theme="glass"] .palette{background:r
     color:var(--faint);font-family:inherit;font-size:10px;border-radius:10px;
   }
   .tabbar button svg{width:20px;height:20px}
+  /* 分组名不再硬编码缩写，用户自定义的长名字靠省略号收住，别把 tab 撑溢出去 */
+  .tabbar button span{max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
   .tabbar button[aria-selected="true"]{color:var(--accent-ink)}
 
   .palette{padding:56px 10px 10px}
@@ -2684,7 +2703,13 @@ html:not([data-wall="none"]) .dlg-in:focus{
       <input class="dlg-in" id="lgUser" name="username" autocomplete="username" spellcheck="false" value="admin">
     </label>
     <label class="fld"><span>密码</span>
-      <input class="dlg-in" id="lgPass" name="password" type="password" autocomplete="current-password">
+      <div class="pw-wrap">
+        <input class="dlg-in" id="lgPass" name="password" type="password" autocomplete="current-password">
+        <button type="button" class="pw-eye" id="lgEye" aria-label="显示密码" aria-pressed="false" tabindex="-1" title="显示密码">
+          <svg class="eye-open" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round"><path d="M2 12s3.7-7 10-7 10 7 10 7-3.7 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+          <svg class="eye-off" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" style="display:none"><path d="M2 12s3.7-7 10-7c1.7 0 3.2.5 4.5 1.2"/><path d="M22 12s-3.7 7-10 7c-1.7 0-3.2-.5-4.5-1.2"/><path d="m3 3 18 18"/></svg>
+        </button>
+      </div>
     </label>
     <label class="login-remember">
       <input type="checkbox" id="lgRemember" checked>
@@ -3250,11 +3275,14 @@ html:not([data-wall="none"]) .dlg-in:focus{
     });
   }
   function buildTabbar(){
-    var map = { "影音媒体":"play", "下载与存储":"down", "家庭与网络":"home", "开发工具":"code" };
-    var short = { "影音媒体":"影音", "下载与存储":"下载", "家庭与网络":"家庭", "开发工具":"工具" };
+    // 图标和名字都走通用逻辑，不再硬编码作者自己的四个分组。
+    // 之前这里是 map = {"影音媒体":"play","下载与存储":"down",...}，开源用户建「电影」「Docker」
+    // 「记账」这种分组，手机上全是同一个 box 图标，而桌面侧栏的 groupIcon() 能认出来
+    // —— 同一个分组两个端两个图标。现在统一调 groupIcon()（用户手动指定 > 28 条关键词 > folder），
+    // 名字用全名，超长由 CSS 省略号处理。
     var tabs = [{ id:"__all", ic:"grid", t:"全部" }];
     DATA.forEach(function(s){
-      tabs.push({ id:s.g, ic:map[s.g] || "box", t:short[s.g] || s.g });
+      tabs.push({ id:s.g, ic:groupIcon(s.g), t:s.g });
     });
     elTabbar.innerHTML = tabs.map(function(x){
       return '<button data-g="' + x.id + '" aria-selected="' +
@@ -5457,6 +5485,31 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
         loginErr("网络错误，稍后再试");
       });
   });
+
+  // 密码框小眼睛：点了在明文 / 圆点之间切换。
+  // 父级是 <label>，点按钮会被 label 转发成「点 input」，所以 mousedown 要先 preventDefault，
+  // 否则 input 重新聚焦、光标跳回开头，用户接着打字会插到最前面。
+  (function () {
+    var eye = document.getElementById("lgEye");
+    var pass = document.getElementById("lgPass");
+    if (!eye || !pass) return;
+    var shown = false;
+    eye.addEventListener("mousedown", function (e) { e.preventDefault(); });
+    eye.addEventListener("click", function (e) {
+      e.preventDefault();
+      e.stopPropagation();
+      shown = !shown;
+      pass.type = shown ? "text" : "password";
+      eye.classList.toggle("on", shown);
+      eye.setAttribute("aria-pressed", shown ? "true" : "false");
+      eye.setAttribute("aria-label", shown ? "隐藏密码" : "显示密码");
+      eye.title = shown ? "隐藏密码" : "显示密码";
+      eye.querySelector(".eye-open").style.display = shown ? "none" : "";
+      eye.querySelector(".eye-off").style.display = shown ? "" : "none";
+      // 光标放末尾：全选状态下接着打字会整段替换，末尾最符合直觉
+      try { pass.focus(); var n = pass.value.length; pass.setSelectionRange(n, n); } catch (err) {}
+    });
+  })();
 
   document.getElementById("btnLogout").addEventListener("click", function () {
     fetch("/api/auth/logout", { method: "POST", credentials: "same-origin" })

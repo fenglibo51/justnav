@@ -77,6 +77,11 @@ grep -Fq -- 'func (s *Server) authGate' internal/api/api.go && ok "路由门禁"
 grep -Fq -- '"/api/items":' internal/api/api.go && bad "/api/items 出现在白名单里 —— 千万别" || ok "业务接口不在白名单"
 grep -Fq -- 'function showLogin()' "$WEB" && ok "登录页" || bad "缺少登录页"
 grep -Fq -- '/api/auth/login' "$WEB" && ok "登录请求" || bad "缺少登录请求"
+grep -Fq -- 'id="lgEye"' "$WEB" && ok "密码框右侧有小眼睛（明文/圆点切换）" || bad "密码框没有小眼睛按钮"
+grep -Fq -- '.pw-eye{' "$WEB" && ok "小眼睛样式在位" || bad "小眼睛缺样式"
+grep -Fq -- 'flex:0 0 100%;justify-content:flex-end' "$WEB" && ok "设置页账号按钮组独占一行（长用户名不再挡住改名/改密）" || bad "账号按钮组还会被长名字挤掉"
+grep -Fq -- 'ic:groupIcon(s.g)' "$WEB" && ok "手机 tabbar 图标走通用规则（用户自建分组也认得出）" || bad "tabbar 又硬编码作者的分组图标了"
+grep -Fq -- 'GROUP_RULES = [' "$WEB" && ok "分组图标关键词规则在位（28 条）" || bad "GROUP_RULES 没了，自建分组全变 folder"
 grep -Fq -- 'body.booting .app' "$WEB" && ok "启动态藏主界面（未登录不再闪一下主界面）" || bad "缺少 booting 启动态，未登录会先闪主界面"
 grep -Fq -- '<body class="booting">' "$WEB" && ok "body 初始带 booting" || bad "body 没带 booting 初始态"
 grep -Fq -- 'var DATA = [];' "$WEB" && ok "DATA 不带演示数据（开源不泄漏作者服务清单）" || bad "DATA 里又塞演示数据了"
@@ -520,7 +525,7 @@ print("OK")
 PYCHK
 [ "$?" = "0" ] && ok "CSS 大括号平衡（防跨段删除删坏）" || bad "CSS 括号不平衡"
 
-grep -Fq -- 'var Version = "1.0.1"' internal/api/api.go && ok "后端版本号 1.0.1" || bad "版本号没更新"
+grep -Fq -- 'var Version = "dev"' internal/api/api.go && ok "版本号源码兜底 dev（发版才注入，不再每次手改）" || bad "版本号兜底值被改回具体数字了"
 grep -Fq -- 'id="sideVer"' "$WEB" && ok "侧栏底部有版本号元素" || bad "没有版本号显示位"
 grep -Fq -- '.app.side-min .side-foot{display:none}' "$WEB" && ok "收起侧栏时整个 side-foot 隐藏（版本号一起藏）" || bad "收起态版本号还露着"
 

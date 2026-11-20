@@ -26,9 +26,10 @@ import (
 	"justnav/internal/weather"
 )
 
-// Version 由构建时注入：-ldflags "-X justnav/internal/api.Version=v1.0.1"
-// 直接 go build 不注入也没关系，这里有个兜底值。
-var Version = "1.0.1"
+// Version 由构建时注入：-ldflags "-X justnav/internal/api.Version=1.0.3"
+// 直接 go build 不注入就显示 dev —— 开发期间别在这里手改数字，
+// 只有真正发版（打 tag、CI 构建）才注入，否则一天能涨好几个版本号。
+var Version = "dev"
 
 // 1x1 透明 PNG：favicon 抓不到时回这个，避免 404 污染控制台
 var transparentPNG = []byte{
@@ -843,6 +844,8 @@ func (s *Server) handleLogin(w http.ResponseWriter, r *http.Request) {
 	}
 	user, ok := s.Auth.Authenticate(req.Username, req.Password)
 	if !ok {
+		// 记用户名和密码长度（不记密码本身），用来区分「用户名不对」和「密码打错」
+		log.Printf("登录失败 username=%q 密码长度=%d ip=%s", req.Username, len(req.Password), ip)
 		s.Auth.RecordFailure(ip)
 		writeErr(w, http.StatusUnauthorized, "账号或密码不正确")
 		return
