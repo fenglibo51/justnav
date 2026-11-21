@@ -26,6 +26,8 @@ import (
 	"justnav/internal/store"
 	"justnav/internal/wallpaper"
 	"justnav/internal/weather"
+
+	"justnav/internal/svgscan"
 )
 
 // Version 由构建时注入：-ldflags "-X justnav/internal/api.Version=1.0.3"
@@ -260,6 +262,14 @@ func (s *Server) handleFavicon(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	w.Header().Set("Cache-Control", "public, max-age=604800")
+	// 第二层防御：SVG 会被浏览器当文档渲染，而 /api/favicon 跟页面同源。
+	// favicon 包已经在落盘时用 svgscan.Unsafe 拦了可执行内容，但那是黑名单，
+	// 不能当唯一边界 —— 万一漏过，这条 CSP 让它在沙箱里跑不起来，读不到
+	// cookie、调不了写接口。PNG/ICO 等位图没有执行能力，不需要。
+	if strings.HasSuffix(path, ".svg") {
+		w.Header().Set("Content-Security-Policy", svgscan.CSP)
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	}
 	http.ServeFile(w, r, path)
 }
 

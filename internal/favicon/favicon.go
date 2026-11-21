@@ -21,6 +21,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"justnav/internal/svgscan"
 )
 
 const maxBytes = 256 << 10 // 图标不该超过 256KB
@@ -264,6 +266,15 @@ func (f *Fetcher) Get(ctx context.Context, rawURL string) (string, error) {
 		if ext == "" {
 			return "", false // 大概率是 HTML 404 页，不是图标
 		}
+		// SVG 是唯一会被浏览器当「文档」渲染的图标格式，而这里的内容来自
+		// 目标站点，完全不可信。/api/favicon 跟页面同源，谁把链接直接打开
+		// 就会在本站源下执行里面的脚本。命中可执行内容就当没抓到，继续试
+		// 下一个来源 —— 前端会回退到透明 PNG。
+		//
+		// 第二层在 handleFavicon：SVG 响应统一套 sandbox CSP。
+		if ext == ".svg" && svgscan.Unsafe(body) {
+			return "", false
+		}
 		p := filepath.Join(f.dir, k+ext)
 		if err := os.WriteFile(p, body, 0o644); err != nil {
 			return "", false
@@ -329,6 +340,13 @@ func (f *Fetcher) lookup(k string) string {
 	for _, ext := range []string{".ico", ".png", ".jpg", ".svg", ".webp"} {
 		p := filepath.Join(f.dir, k+ext)
 		if st, err := os.Stat(p); err == nil && st.Size() > 0 {
+			// 老版本落盘的 SVG 没检查过 —— 读到脏的直接删掉，当没有这一份
+			if ext == ".svg" {
+				if b, err := os.ReadFile(p); err == nil && svgscan.Unsafe(b) {
+					_ = os.Remove(p)
+					continue
+				}
+			}
 			return p
 		}
 	}
