@@ -2,10 +2,15 @@
 #
 #   docker compose up -d
 #
-# 默认起两个容器：主程序 + 容器采集器（自动发现 NAS 上的服务）。
+# 默认只起主程序，导航、壁纸、天气、下载器全部可用。
 #
-# 不想要自动发现：把下面 justnav-discovery 整段注释掉，
-# 或者把主程序里的 JUSTNAV_DISCOVERY_FILE 留空。
+# 想要「Docker 自动发现」（自动列出 NAS 上的容器）：
+#   ① 把下面 justnav-discovery 那一整段前面的 # 删掉
+#   ② 把主程序里 JUSTNAV_DISCOVERY_FILE 那行的 # 删掉
+#   ③ docker compose up -d
+#
+# ⚠️ 开启后那个容器会挂载 Docker Socket，等于持有宿主机最高权限。
+#    拆成独立进程只是让主程序拿不到它，不是消灭这个权限。
 #
 # 本地开发（要改代码）用 compose.dev.yaml，别用这个。
 
@@ -31,10 +36,9 @@ services:
       JUSTNAV_PROBE_THRESHOLD: "2"
       JUSTNAV_PROBE_INSECURE: "true"
 
-      # Docker 自动发现：读采集器写出来的快照
-      # 留空 = 未启用，界面上「待收录」显示「未启用」，不是故障
-      JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
-      JUSTNAV_DISCOVERY_STALE_SEC: "60"
+      # Docker 自动发现（默认关闭）。要用就连同下面 justnav-discovery 一起启用：
+      # JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
+      # JUSTNAV_DISCOVERY_STALE_SEC: "60"
       # 没打 nav.* 标签、但有端口映射的运行容器也列进「待收录」
       JUSTNAV_DOCKER_SCAN_ALL: "true"
 
@@ -49,34 +53,42 @@ services:
       JUSTNAV_COOKIE_SECURE: "false"
     volumes:
       - ./data:/data:rw
-      # 只读挂快照，主程序写不了
-      - justnav_discovery:/run/justnav-discovery:ro
+      # 只读挂快照，主程序写不了（要用自动发现时取消注释）
+      # - justnav_discovery:/run/justnav-discovery:ro
     # ★ 主程序不挂 /var/run/docker.sock
 
-  # ------------------------------------------------------------------
-  # 采集器：负责读 Docker 的容器列表
-  #
-  # ⚠️ 这个容器会挂载 Docker Socket，等于持有宿主机最高权限。
-  #    拆成独立进程只是为了让主程序拿不到它，不是消灭这个权限。
-  #
-  # 不想要就把这一段整块注释掉。
-  # ------------------------------------------------------------------
-  justnav-discovery:
-    image: ghcr.io/fenglibo51/justnav-discovery:latest
-    container_name: justnav-discovery
-    restart: unless-stopped
-    network_mode: none      # 没有网卡，不提供任何网络服务
-    read_only: true         # 根文件系统只读
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    environment:
-      TZ: Asia/Shanghai
-      JUSTNAV_DISCOVERY_OUT: /out/containers.json
-      JUSTNAV_DISCOVERY_INTERVAL_SEC: "15"
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - justnav_discovery:/out
 
-volumes:
-  justnav_discovery:
+# ============================================================
+# Docker 自动发现（可选，默认关闭）
+#
+# 要用的话：把下面整段的 # 去掉，同时去主程序里取消
+# JUSTNAV_DISCOVERY_FILE 和 justnav_discovery 卷的注释。
+# ============================================================
+# # ------------------------------------------------------------------
+# # 采集器：负责读 Docker 的容器列表
+# #
+# # ⚠️ 这个容器会挂载 Docker Socket，等于持有宿主机最高权限。
+# #    拆成独立进程只是为了让主程序拿不到它，不是消灭这个权限。
+# #
+# # 不想要就把这一段整块注释掉。
+# # ------------------------------------------------------------------
+# justnav-discovery:
+#   image: ghcr.io/fenglibo51/justnav-discovery:latest
+#   container_name: justnav-discovery
+#   restart: unless-stopped
+#   network_mode: none      # 没有网卡，不提供任何网络服务
+#   read_only: true         # 根文件系统只读
+#   cap_drop: [ALL]
+#   security_opt:
+#     - no-new-privileges:true
+#   environment:
+#     TZ: Asia/Shanghai
+#     JUSTNAV_DISCOVERY_OUT: /out/containers.json
+#     JUSTNAV_DISCOVERY_INTERVAL_SEC: "15"
+#   volumes:
+#     - /var/run/docker.sock:/var/run/docker.sock:ro
+#     - justnav_discovery:/out
+#
+# volumes:
+# justnav_discovery:
+#

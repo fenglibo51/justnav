@@ -156,33 +156,37 @@ services:
       JUSTNAV_SITE_NAME: JustNav
       # 改成你自己 NAS / 主机的内网地址
       JUSTNAV_INTERNAL_HOST: "192.168.1.10"
-      # 配合下面的采集器，自动发现 NAS 上的容器
-      JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
+      # 要用容器自动发现就取消下面这行注释（配合文件末尾那段）
+      # JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
     volumes:
       - ./data:/data:rw
-      - justnav_discovery:/run/justnav-discovery:ro
+      # - justnav_discovery:/run/justnav-discovery:ro
 
-  # 容器自动发现。不想要就去掉这一段 + 上面那行 JUSTNAV_DISCOVERY_FILE
-  justnav-discovery:
-    image: ghcr.io/fenglibo51/justnav-discovery:latest
-    container_name: justnav-discovery
-    restart: unless-stopped
-    network_mode: none
-    read_only: true
-    cap_drop: [ALL]
-    security_opt:
-      - no-new-privileges:true
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-      - justnav_discovery:/out
-
-volumes:
-  justnav_discovery:
+# ---- 容器自动发现（默认关闭）----
+# 想用的话：把下面这段的 # 去掉，同时去掉上面两行的注释
+#
+# justnav-discovery:
+#   image: ghcr.io/fenglibo51/justnav-discovery:latest
+#   container_name: justnav-discovery
+#   restart: unless-stopped
+#   network_mode: none
+#   read_only: true
+#   cap_drop: [ALL]
+#   security_opt:
+#     - no-new-privileges:true
+#   volumes:
+#     - /var/run/docker.sock:/var/run/docker.sock:ro
+#     - justnav_discovery:/out
+#
+# volumes:
+#   justnav_discovery:
 ```
 
 ```bash
 docker compose up -d
 ```
+
+这样只有主程序。想要自动发现容器，按上面注释说的三处一起放开。
 
 完整带注释的版本见 [`.env.example`](.env.example)。
 
@@ -355,10 +359,10 @@ data/wallpaper/                  Bing 每日缓存（共享，只下一份）
 
 ### 开启 / 关闭
 
-**默认就开。** `docker compose up -d` 会同时起主程序和采集器。
+**默认关闭。** `docker compose up -d` 只起主程序，导航、壁纸、天气、下载器全部可用。
 
-不想要：把 compose 里 `justnav-discovery` 那段注释掉，或者把主程序里的
-`JUSTNAV_DISCOVERY_FILE` 留空。
+想要自动发现：把 `compose.yaml` 里 `justnav-discovery` 那整段、
+以及主程序里 `JUSTNAV_DISCOVERY_FILE`、`justnav_discovery` 卷这三处的 `#` 去掉。
 
 ### 为什么是两个容器
 

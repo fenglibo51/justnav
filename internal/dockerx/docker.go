@@ -65,10 +65,11 @@ func Suggest(containers []discovery.Container, includeUnlabeled bool) []Suggeste
 			if labelName == "" {
 				labelName = name
 			}
+			// 没写 nav.url 就【不】给地址。
+			// 以前这里拼 http://127.0.0.1:<port>，那是访问者自己那台机器的回环地址，
+			// 不是 NAS —— 从别的设备点开必然连不上。留空让前端用
+			// JUSTNAV_INTERNAL_HOST 拼成 http://<内网IP>:<port>。
 			url := c.Labels["nav.url"]
-			if url == "" && publicPort > 0 {
-				url = "http://127.0.0.1:" + strconv.Itoa(publicPort)
-			}
 			out = append(out, Suggested{
 				Container: name,
 				Image:     c.Image,

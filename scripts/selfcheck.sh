@@ -108,6 +108,20 @@ grep -Fq -- 'function safeUrl(' "$WEB" && ok "前端有 URL 方案校验" || bad
 grep -Fq -- 'func sanitizeURL(' internal/store/store.go && ok "后端有 URL 方案校验" || bad "后端没挡 javascript:（直接打 API 可绕过前端）"
 grep -Fq -- 'HasPrefix(s, "//")' internal/store/store.go && ok "后端挡住协议相对地址 //host" || bad "//host 能绕过「站内路径」规则"
 
+# ---------- 凭据文件权限 ----------
+grep -Fq -- 'os.Chmod(name, 0o600)' internal/auth/auth.go \
+  && ok "users.json 写成 0600（里面是会话签名密钥）" || bad "users.json 还是宽权限"
+grep -Fq -- 'os.Chmod(tmpName, 0o600)' internal/store/store.go \
+  && ok "nav.json 写成 0600（下载器密码在里面）" || bad "nav.json 还是宽权限"
+grep -Fq -- 'os.Chmod(m.path, 0o644)' internal/auth/auth.go \
+  && bad "还在自动把旧 users.json 放宽成 0644" || ok "不再自动放宽旧文件权限"
+
+# ---------- 标签容器不能生成 127.0.0.1 ----------
+# 只看代码行，注释里提到 127.0.0.1 是说明为什么不能造它
+grep -vE '^[[:space:]]*//' internal/dockerx/docker.go | grep -q 'http://127.0.0.1:' \
+  && bad "dockerx 还在造 127.0.0.1 地址（那是访问者自己的机器）" \
+  || ok "dockerx 不造 127.0.0.1（交给前端用内网 IP 拼）"
+
 # ---------- 正式 Compose 必须能直接跑 ----------
 grep -Fq -- 'entrypoint: ["/app/justnav"]' compose.yaml \
   && bad "正式 compose 还在覆盖 entrypoint（镜像里没这个路径）" || ok "正式 compose 不覆盖 entrypoint"
@@ -173,8 +187,9 @@ grep -Fq -- 'apiPath         = "/containers/json?all=true"' cmd/justnav-discover
 grep -Fq -- 'allowedLabels' cmd/justnav-discovery/main.go \
   && ok "采集器有标签白名单" || bad "采集器没做标签白名单，可能把密码写进快照"
 
+# 采集器被注释掉了，检查注释里那一行还在不在（重新启用时不能丢隔离配置）
 grep -Fq -- 'network_mode: none' compose.yaml \
-  && ok "采集器配了 network_mode: none" || bad "采集器有网络，攻击面变大"
+  && ok "采集器（注释内）配了 network_mode: none" || bad "采集器隔离配置丢了"
 
 # 主程序服务块里不能出现 socket 挂载：先切出 justnav 段再查
 # 只看真正的挂载行（- /var/run/docker.sock），注释里提到这个名字不算
@@ -332,9 +347,14 @@ grep -Fq -- 'if (v.indexOf("lib:") === 0)' "$WEB" && ok "前端支持 lib:xxx（
 grep -Fq -- 'id="fIconSearch"' "$WEB" && ok "编辑弹窗有在线图标搜索框" || bad "没有在线搜索入口"
 grep -Fq -- 'func dockerHost() string' internal/config/config.go && bad "还在自动探测 socket（调 API 的能力应已搬到 discovery 旁车）" || ok "不再自动探测 Docker Socket"
 grep -Fq -- 'JUSTNAV_DISCOVERY_FILE' compose.yaml && ok "compose 用快照文件而不是 socket" || bad "compose 没配快照路径"
-grep -q 'profiles:' compose.yaml \
-  && bad "采集器还有 profile，默认不会启动" \
-  || ok "采集器默认启动（无 profile）"
+# 默认只起主程序。采集器整段用 # 注释掉，想要的人自己去掉注释。
+grep -qE '^  justnav-discovery:' compose.yaml \
+  && bad "采集器默认就是启用的（应该注释掉，让用户自己开）" \
+  || ok "采集器默认关闭（整段注释）"
+grep -q '^# 服务:' compose.yaml && bad "compose 注释段破坏了 YAML" || true
+python3 -c "import yaml,sys; d=yaml.safe_load(open('compose.yaml')); sys.exit(0 if list(d['services'].keys())==['justnav'] else 1)" \
+  && ok "默认 compose 只解析出 justnav 一个服务" \
+  || bad "默认 compose 解析出的服务不止 justnav"
 
 grep -Fq -- 'network_mode: none' compose.yaml && ok "采集器跑在无网络模式" || bad "采集器有网卡，攻击面变大"
 

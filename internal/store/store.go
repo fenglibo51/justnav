@@ -735,7 +735,9 @@ func atomicWrite(path string, payload []byte) error {
 	if err := tmp.Close(); err != nil {
 		return err
 	}
-	if err := os.Chmod(tmpName, 0o644); err != nil {
+	// 0600：nav.json 的 Settings.Downloaders 里有下载器的明文密码，
+	// 同机其他普通用户不该读到。
+	if err := os.Chmod(tmpName, 0o600); err != nil {
 		return err
 	}
 	return os.Rename(tmpName, path)

@@ -127,12 +127,6 @@ func New(dataDir, legacyUser, password string) (m *Manager, gen string, err erro
 		}
 	}
 
-	// 兼容旧版本留下的 0600：既然这次读到了，就顺手放宽成 644，
-	// 免得以后容器换个运行用户又读不到（不用用户手动 chmod）。2026-11-20
-	if len(m.d.Users) > 0 {
-		_ = os.Chmod(m.path, 0o644)
-	}
-
 	// 还没有任何账号 → 用环境变量，没有就 admin/admin 创建第一个管理员
 	if len(m.d.Users) == 0 {
 		if legacyUser == "" {
@@ -244,12 +238,13 @@ func (m *Manager) save() error {
 		return err
 	}
 	tmp.Close()
-	// 0644 而不是 0600：Os.CreateTemp 默认就是 0600，等于把账号文件锁死给
-	// 创建进程的 uid。容器一旦不是以同一个 uid 跑（镜像加了 USER、compose 加了
-	// user:、或者换了 rootless docker），就 open users.json: permission denied，
-	// 进程直接退不出服务，用户看到的就是「账号密码都对但登录不了」。
-	// 里面是 PBKDF2 哈希不是明文，644 可接受。2026-11-20
-	_ = os.Chmod(name, 0o644)
+	// 0600：这个文件里不只有密码哈希，还有会话签名密钥 ——
+	// 拿到它就能伪造任意用户的登录 cookie。只有运行进程自己的 uid 该读得到。
+	//
+	// ★ 之前为了「容器换 uid 后登不进去」放宽成过 0644，那是错的：
+	//   正确的做法是不动权限、把错误报清楚让人去 chown（见 New() 里的提示），
+	//   而不是把凭据文件对所有本地用户敞开。
+	_ = os.Chmod(name, 0o600)
 	return os.Rename(name, m.path)
 }
 
