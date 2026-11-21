@@ -1,4 +1,9 @@
-# JustNav 🔖
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/brand/logo-horizontal-dark.svg">
+    <img src="docs/brand/logo-horizontal.svg" alt="JustNav" width="360">
+  </picture>
+</p>
 
 > 一个原生、纯粹的导航页。不塞信息流，不做容器管理面板，不当监控大屏。
 
