@@ -5,6 +5,7 @@ package config
 import (
 	"os"
 	"strconv"
+	"strings"
 	"time"
 )
 
@@ -45,6 +46,8 @@ type Config struct {
 
 	// 登录认证
 	AuthEnabled  bool
+	// AllowedOrigins 是 CSRF 白名单：反代改了域名/端口、Origin 和 Host 对不上时用
+	AllowedOrigins []string
 	AuthUser     string
 	AuthPassword string // 由环境变量提供；非空时以它为准（方便 compose 固定/重置密码）
 	// 走 HTTPS 反代时置 true，cookie 才会带 Secure
@@ -78,6 +81,7 @@ func Load() Config {
 		DockerIncludeUnlabeled: envBool("JUSTNAV_DOCKER_SCAN_ALL", true),
 		InternalHost:           env("JUSTNAV_INTERNAL_HOST", ""),
 		AuthEnabled:            envBool("JUSTNAV_AUTH", true),
+		AllowedOrigins:         envList("JUSTNAV_ALLOWED_ORIGINS"),
 		AuthUser:               env("JUSTNAV_USER", "admin"),
 		AuthPassword:           os.Getenv("JUSTNAV_PASSWORD"),
 		CookieSecure:           envBool("JUSTNAV_COOKIE_SECURE", false),
@@ -89,6 +93,21 @@ func env(k, def string) string {
 		return v
 	}
 	return def
+}
+
+// envList 读逗号分隔的列表，空字符串得到 nil（不是 [""]）。
+func envList(k string) []string {
+	raw := strings.TrimSpace(os.Getenv(k))
+	if raw == "" {
+		return nil
+	}
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if p := strings.TrimSpace(part); p != "" {
+			out = append(out, p)
+		}
+	}
+	return out
 }
 
 func envBool(k string, def bool) bool {

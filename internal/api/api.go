@@ -8,6 +8,7 @@ import (
 	"io/fs"
 	"log"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
@@ -117,7 +118,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("GET /", s.handleIndex)
 	mux.Handle("GET /assets/", http.FileServer(http.FS(s.Web)))
 
-	return withLogging(s.authGate(mux))
+	return withLogging(securityHeaders(s.csrfGuard(s.authGate(mux))))
 }
 
 // ---------- health ----------
@@ -1119,6 +1120,87 @@ type statusWriter struct {
 func (s *statusWriter) WriteHeader(code int) {
 	s.code = code
 	s.ResponseWriter.WriteHeader(code)
+}
+
+// securityHeaders 给每个响应加一组安全头。
+//
+// CSP 里 script-src 留了 'unsafe-inline'：前端是单文件 index.html，脚本和内联样式
+// 全写在页面里，去掉就直接白屏。这一条挡不住「预埋在内联脚本里的注入」，
+// 但能挡住外部脚本加载、iframe 嵌套、表单外发这些更省事的攻击路径。
+// XSS 的真正防线在 esc() 转义（P0-1），这里只是加一层。
+//
+// img-src 放行 http: 和 https:：图标来自内网各服务的 http 地址，必须放。
+func securityHeaders(next http.Handler) http.Handler {
+	const csp = "default-src 'self'; " +
+		"script-src 'self' 'unsafe-inline'; " +
+		"style-src 'self' 'unsafe-inline'; " +
+		"img-src 'self' data: blob: https: http:; " +
+		"font-src 'self' data:; " +
+		"media-src 'self' blob:; " +
+		"connect-src 'self'; " +
+		"object-src 'none'; " +
+		"base-uri 'self'; " +
+		"form-action 'self'; " +
+		"frame-ancestors 'none'"
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		h := w.Header()
+		h.Set("Content-Security-Policy", csp)
+		// 别让浏览器猜类型：本来返回 JSON 的接口被当成 HTML 执行就是 XSS
+		h.Set("X-Content-Type-Options", "nosniff")
+		// 别把带用户 id 的 URL 通过 Referer 漏给外站
+		h.Set("Referrer-Policy", "same-origin")
+		// 老浏览器不认 CSP frame-ancestors
+		h.Set("X-Frame-Options", "DENY")
+		next.ServeHTTP(w, r)
+	})
+}
+
+// csrfGuard 挡住跨站发起的写请求。
+//
+// 登录态走 Cookie，浏览器会在任何站点发起的请求里自动带上它 ——
+// 别的网页只要往 /api/items 发个 POST，就能替用户改数据。
+//
+// 判定用 Origin（现代浏览器一定会带），没有就退到 Sec-Fetch-Site。
+// 两个都没有的，是 curl 这类非浏览器客户端，放行：那种场景本来就没有
+// 「受害者的 Cookie」这回事。
+func (s *Server) csrfGuard(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.Method {
+		case http.MethodGet, http.MethodHead, http.MethodOptions:
+			next.ServeHTTP(w, r)
+			return
+		}
+		if origin := r.Header.Get("Origin"); origin != "" {
+			if !s.originAllowed(origin, r) {
+				writeErr(w, http.StatusForbidden, "跨站请求被拒绝")
+				return
+			}
+		} else if site := r.Header.Get("Sec-Fetch-Site"); site != "" {
+			if site != "same-origin" && site != "none" {
+				writeErr(w, http.StatusForbidden, "跨站请求被拒绝")
+				return
+			}
+		}
+		next.ServeHTTP(w, r)
+	})
+}
+
+// originAllowed 判断 Origin 是不是自己的地址。
+//
+// 比对 Host 而不是完整 URL：反代后面的协议和端口在程序这侧看不准，
+// 但 Host 头会原样传过来。域名和反代端口不一致时，用
+// JUSTNAV_ALLOWED_ORIGINS 补白名单（逗号分隔，写完整 origin）。
+func (s *Server) originAllowed(origin string, r *http.Request) bool {
+	for _, a := range s.Cfg.AllowedOrigins {
+		if strings.EqualFold(strings.TrimRight(origin, "/"), strings.TrimRight(a, "/")) {
+			return true
+		}
+	}
+	u, err := url.Parse(origin)
+	if err != nil {
+		return false
+	}
+	return strings.EqualFold(u.Host, r.Host)
 }
 
 func withLogging(next http.Handler) http.Handler {

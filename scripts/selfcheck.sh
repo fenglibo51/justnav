@@ -106,6 +106,17 @@ grep -Fq -- 'nameEl.innerHTML = "当前账号 <b>"' "$WEB" \
 # ---------- URL 方案校验：前后端各一道 ----------
 grep -Fq -- 'function safeUrl(' "$WEB" && ok "前端有 URL 方案校验" || bad "前端没挡 javascript:"
 grep -Fq -- 'func sanitizeURL(' internal/store/store.go && ok "后端有 URL 方案校验" || bad "后端没挡 javascript:（直接打 API 可绕过前端）"
+
+# ---------- P2-10：安全响应头 + CSRF ----------
+grep -Fq -- 'func securityHeaders(' internal/api/api.go && ok "有安全响应头中间件" || bad "没有安全响应头"
+grep -Fq -- "Content-Security-Policy" internal/api/api.go && ok "下发 CSP" || bad "没有 CSP"
+grep -Fq -- 'X-Content-Type-Options", "nosniff"' internal/api/api.go && ok "下发 nosniff（防止 JSON 被当 HTML 执行）" || bad "没有 nosniff"
+grep -Fq -- 'Referrer-Policy", "same-origin"' internal/api/api.go && ok "下发 Referrer-Policy" || bad "没有 Referrer-Policy"
+grep -Fq -- 'X-Frame-Options", "DENY"' internal/api/api.go && ok "禁止被 iframe 嵌套" || bad "没有 X-Frame-Options"
+grep -Fq -- 'func (s *Server) csrfGuard(' internal/api/api.go && ok "有 CSRF 防护" || bad "没有 CSRF 防护"
+grep -Fq -- 'Sec-Fetch-Site' internal/api/api.go && ok "CSRF 退到 Sec-Fetch-Site 判断" || bad "CSRF 只认 Origin"
+grep -Fq -- 's.csrfGuard(s.authGate(mux))' internal/api/api.go && ok "CSRF 已挂进中间件链" || bad "CSRF 写了但没挂上"
+grep -Fq -- 'JUSTNAV_ALLOWED_ORIGINS' internal/config/config.go && ok "反代域名不一致时可用白名单" || bad "没有 origin 白名单配置"
 grep -Fq -- 'HasPrefix(s, "//")' internal/store/store.go && ok "后端挡住协议相对地址 //host" || bad "//host 能绕过「站内路径」规则"
 
 # ---------- 凭据文件权限 ----------
