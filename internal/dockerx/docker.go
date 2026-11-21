@@ -120,9 +120,17 @@ func isTrue(v string) bool {
 
 func firstPublicPort(ports []discovery.Port) int {
 	for _, p := range ports {
-		if p.Public > 0 {
-			return p.Public
+		if p.Public <= 0 {
+			continue
 		}
+		// 只认 TCP。DNS 那种 53/udp 映射也带 public 端口，拼成
+		// http://host:53 点开必然打不开；它常常还排在真正的网页端口前面，
+		// 一旦被选中，卡片链接就是死的。Protocol 为空按 TCP 处理（多数
+		// docker 端口本来就不写协议，默认 tcp）。
+		if p.Protocol != "" && !strings.EqualFold(p.Protocol, "tcp") {
+			continue
+		}
+		return p.Public
 	}
 	return 0
 }

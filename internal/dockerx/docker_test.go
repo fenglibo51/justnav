@@ -101,3 +101,47 @@ func TestNoNetworkImports(t *testing.T) {
 	// 这里只做一个显式提醒，不重复实现。
 	t.Log("dockerx 应保持零网络依赖，见 CI 的 go list 检查与 selfcheck.sh")
 }
+
+// 端口挑第一个公开的——但 53/udp 这种不能拼成 http://host:53。
+// 曾经的实现只看 p.Public > 0，DNS 容器排在前面时卡片链接就是死的。
+func TestFirstPublicPortSkipsUDP(t *testing.T) {
+	cases := []struct {
+		name  string
+		ports []discovery.Port
+		want  int
+	}{
+		{
+			name: "udp 排在前面要跳过",
+			ports: []discovery.Port{
+				{Private: 53, Public: 53, Protocol: "udp"},
+				{Private: 80, Public: 8080, Protocol: "tcp"},
+			},
+			want: 8080,
+		},
+		{
+			name:  "协议为空按 tcp 处理",
+			ports: []discovery.Port{{Private: 80, Public: 8081}},
+			want:  8081,
+		},
+		{
+			name:  "全是 udp 就返回 0",
+			ports: []discovery.Port{{Private: 53, Public: 53, Protocol: "udp"}},
+			want:  0,
+		},
+		{
+			name:  "没有公开端口返回 0",
+			ports: []discovery.Port{{Private: 80, Protocol: "tcp"}},
+			want:  0,
+		},
+		{
+			name:  "TCP 大写也认",
+			ports: []discovery.Port{{Private: 443, Public: 8443, Protocol: "TCP"}},
+			want:  8443,
+		},
+	}
+	for _, tc := range cases {
+		if got := firstPublicPort(tc.ports); got != tc.want {
+			t.Errorf("%s: got %d, want %d", tc.name, got, tc.want)
+		}
+	}
+}

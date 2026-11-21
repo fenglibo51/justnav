@@ -254,6 +254,11 @@ func (c *Client) Get(ctx context.Context, name string) ([]byte, string, error) {
 	for _, ext := range []string{"svg", "png"} {
 		p := filepath.Join(dir, name+"."+ext)
 		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
+			// 老版本落盘的缓存没清洗过，读到脏的删掉，走下面的网络重拉
+			if ext == "svg" && svgUnsafe(b) {
+				_ = os.Remove(p)
+				continue
+			}
 			return b, contentType(ext), nil
 		}
 	}
@@ -291,6 +296,10 @@ func (c *Client) Get(ctx context.Context, name string) ([]byte, string, error) {
 			lastErr = fmt.Errorf("%s 读取失败", s.url)
 			continue
 		}
+		if s.ext == "svg" && svgUnsafe(body) {
+			lastErr = fmt.Errorf("%s 返回的 SVG 含可执行内容，已丢弃", s.url)
+			continue
+		}
 		_ = os.WriteFile(filepath.Join(dir, name+"."+s.ext), body, 0o644)
 		return body, contentType(s.ext), nil
 	}
@@ -298,6 +307,39 @@ func (c *Client) Get(ctx context.Context, name string) ([]byte, string, error) {
 		lastErr = fmt.Errorf("找不到图标 %s", name)
 	}
 	return nil, "", lastErr
+}
+
+// svgUnsafe 粗筛 SVG 里的可执行内容。
+//
+// 为什么必须筛：图标是从第三方 CDN 下来原样返回给浏览器的，而
+// /api/icons/get 跟页面同源。用户（或任何拿到链接的人）直接打开那个 URL 时，
+// 浏览器把它当文档渲染 —— SVG 里的 <script> 就在本站源下执行，能读 cookie、
+// 直接调写接口。图标只该是图形，出现下面这些一律当恶意丢掉。
+//
+// 这里是黑名单粗筛，不是完整的 SVG 消毒器。够挡住常见载体：脚本标签、
+// 事件属性、javascript: 伪协议、foreignObject、外链引用、XML 实体展开。
+// 宁可偶尔误杀一个花哨图标（前端会回退到 png / 中性图标），也不放行。
+func svgUnsafe(b []byte) bool {
+	if len(b) > 64<<10 {
+		return true // 图标不该这么大
+	}
+	low := strings.ToLower(string(b))
+	for _, bad := range []string{
+		"<script",
+		"javascript:",
+		"<foreignobject",
+		"<iframe",
+		"<embed",
+		"<object",
+		"<!entity",
+		" onload=", " onerror=", " onclick=", " onmouseover=",
+		" onmouseenter=", " onfocus=", " onbegin=", " onend=", " onactivate=",
+	} {
+		if strings.Contains(low, bad) {
+			return true
+		}
+	}
+	return false
 }
 
 func contentType(ext string) string {

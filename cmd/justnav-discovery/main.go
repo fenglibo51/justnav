@@ -257,8 +257,14 @@ func writeAtomic(path string, snap discovery.Snapshot) error {
 		return err
 	}
 
-	// 0644：主程序以另一个 uid 读，必须可读；里面没有敏感内容（只有白名单字段）
-	if err := os.Chmod(tmpName, 0o644); err != nil {
+	// 0600：两个容器都以 root 跑（compose 里没写 user:），同 uid 读得到，
+	// 不必放给全机可读。快照里只有容器名/镜像/端口/标签，不算凭据，但
+	// 「这台机器上跑了什么服务、开在哪几个端口」也没必要摊给所有本机用户。
+	//
+	// ⚠️ 如果你给 justnav 或 justnav-discovery 指定了 user:、或者宿主开了
+	//    userns-remap，两个容器的 uid 就不一致了，这里要改成同组可读
+	//    （0640 + 两边 compose 同步 group_add）。
+	if err := os.Chmod(tmpName, 0o600); err != nil {
 		return err
 	}
 	if err := os.Rename(tmpName, path); err != nil {
