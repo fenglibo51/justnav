@@ -25,6 +25,22 @@ jobs:
         run: go test ./...
       - name: 自检
         run: bash scripts/selfcheck.sh
+
+      - name: 装 Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: 装 Playwright + Chromium
+        run: |
+          python -m pip install --upgrade pip
+          pip install playwright
+          python -m playwright install --with-deps chromium
+
+      # 真实浏览器跑一遍 XSS 回归：起临时实例、注 payload、断言没执行。
+      # 失败必须让 CI 红灯 —— 手跑才有效的测试等于没有。
+      - name: 浏览器端到端 XSS 回归
+        run: python3 scripts/test-xss.py --port 8701
       - name: 关键验证 —— 主程序不含 Docker API 调用能力
         run: |
           n=$(go list -deps ./internal/dockerx | grep -cE '^net/http$' || true)

@@ -140,29 +140,61 @@ def main():
             return 2
 
         # ── 3. 注入恶意数据（全部走真实 API，等价于用户在界面上这么填）
+        #
+        # 每一次注入都必须 HTTP 2xx —— 注入失败还继续跑，那些 "payload 没执行"
+        # 的断言就是假绿：页面里压根没这条数据，当然不会执行。
         api = Api(base)
         api.call("POST", "/api/auth/login", {"username": "tester", "password": "TestPw123456"})
-        api.call("POST", "/api/groups", {"name": "正常组"})
-        api.call("POST", "/api/items", {"name": "正常卡片", "group": "正常组",
-                                        "internal": "http://127.0.0.1:1/"})
-        api.call("POST", "/api/items", {"name": "X1组里的条目", "group": P_GROUP,
-                                        "internal": "http://127.0.0.1:1/"})
-        api.call("POST", "/api/items", {"name": P_HIDDEN, "group": "正常组",
-                                        "internal": "http://127.0.0.1:1/", "hidden": True})
-        api.call("POST", "/api/items", {"name": "带tag卡片", "group": "正常组",
-                                        "internal": "http://127.0.0.1:1/", "tag": P_TAG})
-        api.call("POST", "/api/settings", {
+
+        def must(desc, method, path, payload=None):
+            st, body = api.call(method, path, payload)
+            if not (200 <= st < 300):
+                fail(f"注入失败：{desc} → HTTP {st} {body[:160]}")
+                return False
+            return True
+
+        injected = []
+        injected.append(must("建正常组", "POST", "/api/groups", {"name": "正常组"}))
+        injected.append(must("正常卡片", "POST", "/api/items", {
+            "name": "正常卡片", "group": "正常组", "internal": "http://127.0.0.1:1/"}))
+        injected.append(must("分组名 payload", "POST", "/api/items", {
+            "name": "X1组里的条目", "group": P_GROUP, "internal": "http://127.0.0.1:1/"}))
+        injected.append(must("隐藏条目 payload", "POST", "/api/items", {
+            "name": P_HIDDEN, "group": "正常组", "internal": "http://127.0.0.1:1/", "hidden": True}))
+        injected.append(must("tag payload", "POST", "/api/items", {
+            "name": "带tag卡片", "group": "正常组", "internal": "http://127.0.0.1:1/", "tag": P_TAG}))
+        injected.append(must("搜索引擎 payload", "POST", "/api/settings", {
             "engines": [
                 {"id": "baidu", "name": "百度", "url": "https://www.baidu.com/s?wd=%s"},
                 {"id": P_ENG_ID, "name": P_ENG_NAME, "url": P_ENG_URL},
             ],
             "engineId": P_ENG_ID,
-        })
+        }))
 
+        if not all(injected):
+            print("\n有注入没成功，后续断言不可信，直接中止")
+            return 1
+
+        # 注入完再回读一遍，确认数据真的落盘了（不是接口 200 但什么都没存）
         st, body = api.call("GET", "/api/items")
+        if st != 200:
+            fail(f"回读 /api/items 失败：HTTP {st}")
+            return 1
         d = json.loads(body)
-        if P_GROUP not in d.get("groups", []):
-            print("⚠️ 分组 payload 没写进去，P0-1 这条测不到（后端可能改了校验）")
+        groups = d.get("groups", [])
+        items = d.get("items", [])
+        if P_GROUP not in groups:
+            fail(f"分组 payload 没落盘：groups={groups[:5]}")
+        names = [it.get("name", "") for it in items]
+        if P_HIDDEN not in names:
+            fail("隐藏条目 payload 没落盘")
+        if not any(it.get("tag") == P_TAG for it in items):
+            fail("tag payload 没落盘")
+        if P_ENG_ID not in [e.get("id") for e in (d.get("settings") or {}).get("engines", [])]:
+            fail("搜索引擎 payload 没落盘")
+        if failures:
+            print("\n注入校验没过，中止 —— 不能拿没注入的数据当没执行")
+            return 1
 
         # ── 4. 浏览器阶段
         from playwright.sync_api import sync_playwright
