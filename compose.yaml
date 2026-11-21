@@ -72,23 +72,23 @@ services:
 # #
 # # 不想要就把这一段整块注释掉。
 # # ------------------------------------------------------------------
-# justnav-discovery:
-#   image: ghcr.io/fenglibo51/justnav-discovery:latest
-#   container_name: justnav-discovery
-#   restart: unless-stopped
-#   network_mode: none      # 没有网卡，不提供任何网络服务
-#   read_only: true         # 根文件系统只读
-#   cap_drop: [ALL]
-#   security_opt:
-#     - no-new-privileges:true
-#   environment:
-#     TZ: Asia/Shanghai
-#     JUSTNAV_DISCOVERY_OUT: /out/containers.json
-#     JUSTNAV_DISCOVERY_INTERVAL_SEC: "15"
-#   volumes:
-#     - /var/run/docker.sock:/var/run/docker.sock:ro
-#     - justnav_discovery:/out
+#   justnav-discovery:
+#     image: ghcr.io/fenglibo51/justnav-discovery:latest
+#     container_name: justnav-discovery
+#     restart: unless-stopped
+#     network_mode: none      # 没有网卡，不提供任何网络服务
+#     read_only: true         # 根文件系统只读
+#     cap_drop: [ALL]
+#     security_opt:
+#       - no-new-privileges:true
+#     environment:
+#       TZ: Asia/Shanghai
+#       JUSTNAV_DISCOVERY_OUT: /out/containers.json
+#       JUSTNAV_DISCOVERY_INTERVAL_SEC: "15"
+#     volumes:
+#       - /var/run/docker.sock:/var/run/docker.sock:ro
+#       - justnav_discovery:/out
 #
 # volumes:
-# justnav_discovery:
+#   justnav_discovery:
 #

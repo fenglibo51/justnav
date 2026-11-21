@@ -168,6 +168,10 @@ func (m *Manager) load() error {
 	if err != nil {
 		return err
 	}
+	// 收紧既有文件的权限。save() 会 chmod 0600，但老版本可能是 0644 建出来的，
+	// 而 users.json 里存着密码哈希和会话签名密钥 —— 只要那个文件还在，权限就得
+	// 收回来。读成功之后才 chmod，失败不致命（比如卷是只读的，读得到改不了）。
+	_ = os.Chmod(m.path, 0o600)
 	var d doc
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return fmt.Errorf("解析 users.json: %w", err)

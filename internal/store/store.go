@@ -226,7 +226,35 @@ func (s *Store) Snapshot() Data {
 	d := s.data
 	d.Groups = append([]string(nil), s.data.Groups...)
 	d.Items = append([]Item(nil), s.data.Items...)
+	d.Settings = s.data.Settings.clone()
 	return d
+}
+
+// clone 复制 Settings 里的引用类型（slice / map）。
+//
+// 光靠 `out := st` 只是浅拷贝：Engines、Widgets、Downloaders 三个 slice 和
+// GroupIcons 这个 map 复制走的只是 header，底层数据仍跟内部状态共用一份。
+// 调用方拿着 Snapshot() 在锁外遍历 GroupIcons 的同时，SetSettings 在锁内
+// 写同一个 map —— Go 运行时会直接 fatal error: concurrent map read and map
+// write，整个进程挂掉，不是脏数据那么简单。
+func (st Settings) clone() Settings {
+	out := st
+	if st.Engines != nil {
+		out.Engines = append([]Engine(nil), st.Engines...)
+	}
+	if st.Widgets != nil {
+		out.Widgets = append([]string(nil), st.Widgets...)
+	}
+	if st.Downloaders != nil {
+		out.Downloaders = append([]Downloader(nil), st.Downloaders...)
+	}
+	if st.GroupIcons != nil {
+		out.GroupIcons = make(map[string]string, len(st.GroupIcons))
+		for k, v := range st.GroupIcons {
+			out.GroupIcons[k] = v
+		}
+	}
+	return out
 }
 
 // List 返回按 order、name 排序后的条目副本。

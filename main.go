@@ -117,10 +117,22 @@ func main() {
 	// 状态探测循环：每轮现取条目，增删改自动跟上
 	if cfg.ProbeEnabled {
 		go pr.Run(ctx, func() []probe.Target {
-			// 遍历所有账号的条目；key 用 "<uid>:<itemID>" 避免跨账号撞 ID
+			// 每轮现取账号，增删号自动跟上；key 用 "<uid>:<itemID>" 避免跨账号撞 ID
+			//
+			// 关掉登录（JUSTNAV_AUTH=false）时 authMgr.List() 恒为空 —— 那时候
+			// 所有数据都挂在 store.LocalUserID 名下（就是 data/nav.json），必须
+			// 把它补进去，否则探测循环一个目标都拿不到，卡片状态永远是灰的。
+			userIDs := make([]string, 0, 4)
+			if cfg.AuthEnabled {
+				for _, pu := range authMgr.List() {
+					userIDs = append(userIDs, pu.ID)
+				}
+			} else {
+				userIDs = append(userIDs, store.LocalUserID)
+			}
 			out := []probe.Target{}
-			for _, pu := range authMgr.List() {
-				st, err := stReg.For(pu.ID)
+			for _, uid := range userIDs {
+				st, err := stReg.For(uid)
 				if err != nil {
 					continue
 				}
@@ -130,7 +142,7 @@ func main() {
 					if mode == "out" && it.External != "" {
 						u = it.External
 					}
-					out = append(out, probe.Target{ID: pu.ID + ":" + it.ID, URL: u})
+					out = append(out, probe.Target{ID: uid + ":" + it.ID, URL: u})
 				}
 			}
 			return out

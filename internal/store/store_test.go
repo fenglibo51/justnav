@@ -433,3 +433,75 @@ func TestBulkUpsertWithoutGroupFallsBack(t *testing.T) {
 		t.Error("未分组必须在 Groups 里")
 	}
 }
+
+// Snapshot 必须把 Settings 里的引用类型也拷出来。
+//
+// 这条是回归测试：以前的 Snapshot 只 `d := s.data` + 拷 Groups/Items，
+// Settings 里的 map / slice 复制走的只是 header，跟内部状态共用同一份
+// 底层数据。调用方拿着快照在锁外改它，等于绕过锁改内部状态；反方向则是
+// 并发读写 map —— Go 会直接 fatal error 崩进程，不是脏数据。
+//
+// 没有 gcc 跑不了 -race，所以这里用「改快照不能影响内部」来确定性证明。
+func TestSnapshotIsolatesSettingsReferences(t *testing.T) {
+	dir := t.TempDir()
+	st := New(dir)
+	if err := st.Load(); err != nil {
+		t.Fatal(err)
+	}
+	err := st.SetSettings(Settings{
+		GroupIcons:  map[string]string{"媒体": "film"},
+		Engines:     []Engine{{ID: "e1", Name: "原始引擎", URL: "https://a/%s"}},
+		Widgets:     []string{"calendar"},
+		Downloaders: []Downloader{{ID: "d1", Name: "qb", Type: "qb", URL: "http://h:8085", Pass: "secret"}},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	snap := st.Snapshot()
+	// 往快照里可劲儿改
+	snap.Settings.GroupIcons["媒体"] = "被改了"
+	snap.Settings.GroupIcons["新增组"] = "x"
+	snap.Settings.Engines[0].Name = "被改了"
+	snap.Settings.Widgets[0] = "被改了"
+	snap.Settings.Downloaders[0].Pass = "被改了"
+
+	again := st.Snapshot()
+	if got := again.Settings.GroupIcons["媒体"]; got != "film" {
+		t.Errorf("GroupIcons 被快照改到了内部: %q", got)
+	}
+	if _, ok := again.Settings.GroupIcons["新增组"]; ok {
+		t.Error("往快照的 map 里加键，污染了内部状态")
+	}
+	if got := again.Settings.Engines[0].Name; got != "原始引擎" {
+		t.Errorf("Engines 是浅拷贝: %q", got)
+	}
+	if got := again.Settings.Widgets[0]; got != "calendar" {
+		t.Errorf("Widgets 是浅拷贝: %q", got)
+	}
+	if got := again.Settings.Downloaders[0].Pass; got != "secret" {
+		t.Errorf("Downloaders 是浅拷贝: %q", got)
+	}
+}
+
+// 反过来也要成立：内部改了，之前拿到的快照不能跟着变。
+func TestSnapshotUnchangedByLaterWrites(t *testing.T) {
+	dir := t.TempDir()
+	st := New(dir)
+	if err := st.Load(); err != nil {
+		t.Fatal(err)
+	}
+	if err := st.SetSettings(Settings{GroupIcons: map[string]string{"A": "one"}}); err != nil {
+		t.Fatal(err)
+	}
+	snap := st.Snapshot()
+	if err := st.SetSettings(Settings{GroupIcons: map[string]string{"A": "two", "B": "three"}}); err != nil {
+		t.Fatal(err)
+	}
+	if got := snap.Settings.GroupIcons["A"]; got != "one" {
+		t.Errorf("内部改动渗透进了旧快照: %q", got)
+	}
+	if _, ok := snap.Settings.GroupIcons["B"]; ok {
+		t.Error("内部新增的键出现在旧快照里")
+	}
+}
