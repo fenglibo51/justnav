@@ -4,7 +4,9 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="color-scheme" content="dark light">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Crect width=%2724%27 height=%2724%27 rx=%275%27 fill=%27%234b5ed4%27/%3E%3Cg fill=%27%23fff%27%3E%3Crect x=%275%27 y=%275%27 width=%275%27 height=%275%27 rx=%271.4%27/%3E%3Crect x=%2714%27 y=%275%27 width=%275%27 height=%275%27 rx=%271.4%27/%3E%3Crect x=%275%27 y=%2714%27 width=%275%27 height=%275%27 rx=%271.4%27/%3E%3Crect x=%2714%27 y=%2714%27 width=%275%27 height=%275%27 rx=%271.4%27/%3E%3C/g%3E%3C/svg%3E">
+<link rel="icon" href="/assets/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/assets/favicon.ico" sizes="any">
+<link rel="apple-touch-icon" href="/assets/apple-touch-icon.png">
 <title>JustNav · 原型</title>
 <!-- 首屏防闪（2026-11-19）
      html 标签上的 data-wall 默认是 none，等于浅色主题；JS 要等脚本跑完、
@@ -154,13 +156,14 @@ html[data-wall="custom"] .card-meta{color:rgba(16,20,32,.80)}
    一切换下面搜索框和整个分组列表就整体平移，肉眼很别扭。
    收起态把 gap 和 padding 压紧到 74px，展开态用 min-height 对齐到同一高度。 */
 .brand{display:flex;align-items:center;gap:10px;padding:4px 8px 16px;min-height:74px}
+/* 品牌标记：直接内联 SVG，不走 <img> 请求 —— 省一次网络往返，
+   也不会出现「图片明明 200 但页面显示破图」这种加载时序问题。
+   图形来自 docs/brand/logo-mark.svg，这里按 128 的 viewBox 缩放。 */
 .mark{
-  width:34px;height:34px;border-radius:11px;flex:0 0 34px;
-  background:linear-gradient(145deg,#7d97ff,#4b5ed4 55%,#8d5be0);
-  box-shadow:0 6px 16px rgba(90,110,240,.42), inset 0 1px 0 rgba(255,255,255,.45);
-  display:grid;place-items:center;color:#fff;
+  width:34px;height:34px;flex:0 0 34px;
+  display:grid;place-items:center;
 }
-.mark svg{width:19px;height:19px}
+.mark svg{width:34px;height:34px;display:block;border-radius:11px}
 .brand-t{font-size:16px;font-weight:650;letter-spacing:.2px}
 .brand-s{font-size:11px;color:var(--faint);margin-top:1px}
 
@@ -530,6 +533,7 @@ body.locked .login{display:flex}
 }
 .login-brand{display:flex;align-items:center;gap:11px;margin-bottom:20px}
 .login-brand .mark{width:38px;height:38px;flex:0 0 38px;border-radius:12px}
+.login-brand .mark svg{width:38px;height:38px;border-radius:12px}
 .login-brand .t{font-size:17px;font-weight:650;letter-spacing:.2px}
 .login-brand .s{font-size:11.5px;color:var(--faint);margin-top:2px}
 .login .fld{margin-bottom:12px}
@@ -2494,12 +2498,7 @@ html:not([data-wall="none"]) .dlg-in:focus{
 </script>
   <aside class="side">
     <div class="brand">
-      <div class="mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/>
-          <rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>
-        </svg>
-      </div>
+      <div class="mark"><svg viewBox="0 0 128 128" aria-hidden="true"><rect x="1" y="1" width="126" height="126" rx="29" fill="#F7F4EF" stroke="#E4DDD2" stroke-width="2"/><rect x="27" y="27" width="34" height="34" rx="9" fill="#25333A"/><rect x="27" y="67" width="34" height="34" rx="9" fill="#25333A"/><rect x="67" y="67" width="34" height="34" rx="9" fill="#25333A"/><path d="M76 54L102 28M84 28H102V46" fill="none" stroke="#ED6D54" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div class="brand-text">
         <div class="brand-t">JustNav</div>
         <div class="brand-s">就只是个导航</div>
@@ -2838,12 +2837,7 @@ html:not([data-wall="none"]) .dlg-in:focus{
 <div class="login" id="login">
   <form class="login-box" id="loginForm" autocomplete="on">
     <div class="login-brand">
-      <div class="mark">
-        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
-          <rect x="3" y="3" width="7" height="7" rx="2"/><rect x="14" y="3" width="7" height="7" rx="2"/>
-          <rect x="3" y="14" width="7" height="7" rx="2"/><rect x="14" y="14" width="7" height="7" rx="2"/>
-        </svg>
-      </div>
+      <div class="mark"><svg viewBox="0 0 128 128" aria-hidden="true"><rect x="1" y="1" width="126" height="126" rx="29" fill="#F7F4EF" stroke="#E4DDD2" stroke-width="2"/><rect x="27" y="27" width="34" height="34" rx="9" fill="#25333A"/><rect x="27" y="67" width="34" height="34" rx="9" fill="#25333A"/><rect x="67" y="67" width="34" height="34" rx="9" fill="#25333A"/><path d="M76 54L102 28M84 28H102V46" fill="none" stroke="#ED6D54" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div>
         <div class="t">JustNav</div>
         <div class="s">就只是个导航</div>

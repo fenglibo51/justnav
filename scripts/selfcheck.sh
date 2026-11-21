@@ -707,8 +707,11 @@ echo "== 4. 仓库卫生"
 forbid 'data:image/jpeg'                              '无内嵌位图'
 forbid 'data:image/webp'                              '无内嵌位图'
 # docs/screenshots 是 README 引用的演示截图（已压成 jpg，单张 <250KB）—— 属文档资产，放行。
+# docs/brand 是品牌物料（logo 预览图，README / GitHub 页面用）—— 同样是文档资产，放行。
+# web/assets 是前端运行时资源（favicon / apple-touch-icon），必须随二进制发出去，放行。
 # 其它位置出现图片仍然报警：.gitignore 只排了 /data/，壁纸缓存漏到别处会被这条抓住。
-imgs=$(find . \( -name '*.jpg' -o -name '*.png' -o -name '*.webp' \) 2>/dev/null | grep -v '^./data' | grep -v '^./docs/screenshots' | head -5 || true)
+imgs=$(find . \( -name '*.jpg' -o -name '*.png' -o -name '*.webp' -o -name '*.ico' \) 2>/dev/null \
+  | grep -v '^./data' | grep -v '^./docs/screenshots' | grep -v '^./docs/brand' | grep -v '^./web/assets' | head -5 || true)
 [ -z "$imgs" ] && ok "仓库无图片文件" || bad "仓库里出现图片: $imgs"
 if grep -rn -- '^ *|' --include='*.md' . 2>/dev/null | grep -q .; then
   bad "文档里出现了 Markdown 表格（排版铁律禁止）"
