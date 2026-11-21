@@ -134,6 +134,8 @@ docker run -d \
   ghcr.io/fenglibo51/justnav:latest
 ```
 
+> 这条只有主程序，没有容器自动发现。需要自动发现用下面的 Compose。
+
 打开 `http://你的IP:8522`，默认账号 **`admin` / `admin`**，登录后立刻去「设置 → 改密码」。
 
 > ⚠️ 默认密码是硬编码的 `admin`，不是随机生成 —— 部署在能被别人访问到的网络上就必须改。
@@ -154,8 +156,32 @@ services:
       JUSTNAV_SITE_NAME: JustNav
       # 改成你自己 NAS / 主机的内网地址
       JUSTNAV_INTERNAL_HOST: "192.168.1.10"
+      # 配合下面的采集器，自动发现 NAS 上的容器
+      JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
     volumes:
       - ./data:/data:rw
+      - justnav_discovery:/run/justnav-discovery:ro
+
+  # 容器自动发现。不想要就去掉这一段 + 上面那行 JUSTNAV_DISCOVERY_FILE
+  justnav-discovery:
+    image: ghcr.io/fenglibo51/justnav-discovery:latest
+    container_name: justnav-discovery
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      - justnav_discovery:/out
+
+volumes:
+  justnav_discovery:
+```
+
+```bash
+docker compose up -d
 ```
 
 完整带注释的版本见 [`.env.example`](.env.example)。

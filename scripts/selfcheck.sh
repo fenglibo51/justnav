@@ -122,10 +122,18 @@ grep -q '^JUSTNAV_DOCKER_HOST=' .env.example \
 grep -q 'JUSTNAV_DISCOVERY_FILE' .env.example \
   && ok ".env.example 有快照路径项" || bad ".env.example 缺 JUSTNAV_DISCOVERY_FILE"
 
-# README 里不能出现可复制的挂 socket 配置块（解释性文字不算：那些行前面有 # 或是 prose）
-grep -nE '^\s+-\s*/var/run/docker\.sock:/var/run/docker\.sock' README.md \
-  && bad "README 里有可直接复制的 socket 挂载行" \
-  || ok "README 里没有教人挂 socket 的配置块"
+# README 的 compose 示例里，socket 只能挂在 justnav-discovery 段。
+# 挂到 justnav 段就是错的 —— 那等于把 NAS 最高权限交给主程序。
+awk '/^  justnav:/{f=1} /^  justnav-discovery:/{f=0} f' README.md \
+  | grep -qE '^[[:space:]]+-[[:space:]]*/var/run/docker\.sock' \
+  && bad "README 的 justnav 服务块挂了 socket" \
+  || ok "README 的 justnav 服务块不挂 socket"
+
+# 快速开始的 Compose 示例必须是能直接跑起来的完整配置
+# —— 漏了采集器，用户复制过去就没有自动发现
+awk '/^### Docker Compose/,/^### 源码/' README.md | grep -q 'justnav-discovery:' \
+  && ok "README 快速开始的 Compose 示例包含采集器" \
+  || bad "README 快速开始的 Compose 示例只有主程序，复制过去没有自动发现"
 
 [ -f cmd/justnav-discovery/main.go ] && ok "采集器源码在" || bad "缺 cmd/justnav-discovery"
 [ -f Dockerfile.discovery ] && ok "采集器 Dockerfile 在" || bad "缺 Dockerfile.discovery"
