@@ -919,8 +919,11 @@ body.drag-mode .drag-done{opacity:1;pointer-events:auto;transform:translateY(0)}
   /* 完全对齐左侧卡片那套（web/index.html:1928「卡片：暗玻璃 + 白字」）：
      rgba(20,26,40,.26) 薄薄一层暗玻璃 + 白字 + 双层黑阴影压住壁纸，
      不做 backdrop-filter —— 跟别的位置保持一样，整页才是同一个材质。
-     想调深浅只改这一个 alpha。 */
-  background:rgba(20,26,40,.26);
+     ★ 26% 是只有一块暗色壁纸时调的；现在右栏并排放着日历、天气几块，
+       遇到亮色高细节壁纸（比如红屋顶那种）26% 完全压不住，白字对比度掉得厉害。
+       统一到 62%，跟天气前卡完全一致 —— 两个卡上下相邻，厚薄差一档的话
+       一眼就能看出「一个是主层、一个是次级层」，那不是设计意图。 */
+  background:rgba(20,26,40,.62);
   border:1px solid rgba(255,255,255,.16);
   box-shadow:0 1px 3px rgba(10,16,30,.10);
   text-shadow:0 1px 2px rgba(0,0,0,.55),0 0 6px rgba(0,0,0,.28);
@@ -998,6 +1001,129 @@ body.drag-mode .drag-done{opacity:1;pointer-events:auto;transform:translateY(0)}
 .wg-set:hover{color:var(--wg-ink);background:var(--wg-hover)}
 .wg-set svg{width:13px;height:13px;display:block}
 .wg-hd-r{display:flex;align-items:center;gap:2px;margin-left:auto}
+/* ---------- 天气卡片：5 天竖排 + 今天详情，左右堆叠 ----------
+   两张卡叠在同一格里：当前那张完整显示，后面那张往右推出去只露一条边，
+   点那条边（或左右滑动）就换过去。用户要的就是这种「一摞卡」的效果，
+   不是把卡片一张张往下排 —— 排下去右栏会越来越长，得滚动才看得全。 */
+.wx-days{display:flex;flex-direction:column}
+.wx-day{
+  display:flex;align-items:center;gap:7px;padding:7px 2px;
+  border-bottom:1px solid var(--wg-line);font-size:12.5px;cursor:pointer;
+}
+html[data-wall="none"] .wx-day{border-bottom-color:rgba(16,20,32,.07)}
+.wx-day:last-child{border-bottom:none}
+.wx-day-n{width:34px;flex:0 0 34px;color:var(--wg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-wall="none"] .wx-day-n{color:rgba(16,20,32,.6)}
+.wx-day-i{width:18px;height:18px;flex:0 0 18px;display:flex;align-items:center}
+.wx-day-i svg{width:18px;height:18px}
+.wx-day-sp{flex:1}
+.wx-day-lo{color:var(--wg-faint);font-variant-numeric:tabular-nums}
+html[data-wall="none"] .wx-day-lo{color:rgba(16,20,32,.45)}
+.wx-day-hi{font-weight:600;font-variant-numeric:tabular-nums;min-width:28px;text-align:right;padding-right:12px}
+/* 两张卡必须等高：5 日卡 6 行撑起来的高度，详情卡内容少会矮一截，
+   切换时卡片"缩一下"，很跳。统一 min-height 兜住。 */
+.wx-card{min-height:224px;display:flex;flex-direction:column}
+/* 详情：两列三行，每格是「图标 + 标签」一行，值一行 */
+/* 四行铺满整张卡：align-content:space-between 把四行均匀撑开，
+   否则内容都堆在上半部分，底下空一大块（用户指出的就是这个） */
+.wx-detail{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;align-content:space-between;flex:1;min-height:0}
+.wx-d-h{display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.wx-d-h svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}
+.wx-d-l{font-size:10.5px;color:var(--wg-faint);letter-spacing:.2px}
+html[data-wall="none"] .wx-d-l{color:rgba(16,20,32,.5)}
+.wx-d-v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;padding-left:19px}
+/* 风向这种值长度不定："西南偏南 5km/h" 正好一行，"西北偏北 120km/h" 就会折，
+   折了会把下面那行顶歪。直接单行 + 省略号，宁可截断也不让它破坏网格。 */
+.wx-d-v.sm{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+/* 圆点放在两卡片【外面】的独立一条：原来夹在前卡下沿和背卡下沿之间，
+   上下留白一个窄一个宽，看着局促。现在 stack 底部留出 22px 专门放它。 */
+/* 堆叠：两张卡【常驻 DOM】，切换只改 .wx-stack 的 data-show。
+   原来是每次切换 innerHTML 整块重建 → transition 没有起点终点，动画根本不会跑，
+   卡片是"瞬间变成"另一张。现在两张卡一直在，只改 transform，才有真翻页。
+   位置规则：
+     data-show=days    → 5 日卡在前（translate 0），详情卡退到右下（28px,10px）
+     data-show=detail  → 反过来
+   两张卡同宽（100%-28px），后面的那张平移出去 28px，正好露出右边和底边。 */
+.wx-stack{position:relative;padding-bottom:22px;min-height:246px}
+.wx-card{
+  border-radius:var(--radius-lg);
+  background:rgba(20,26,40,.26);
+  border:1px solid rgba(255,255,255,.16);
+  box-shadow:0 1px 3px rgba(10,16,30,.10);
+  text-shadow:0 1px 2px rgba(0,0,0,.55),0 0 6px rgba(0,0,0,.28);
+  color:#fff;padding:12px 11px;
+  width:calc(100% - 28px);
+  position:absolute;left:0;top:0;
+  transition:transform .34s cubic-bezier(.22,1,.36,1),
+             opacity .30s ease,
+             box-shadow .34s ease;
+  /* 不写 will-change：这个项目有条既有断言盯着它（"每张卡建层会闪"，
+     整理模式下已经因为这个撤过一次 backdrop-filter）。过渡本身不需要预建图层。 */
+}
+/* 前面那张：正常位置，压住后面那张 */
+.wx-card.wx-front{
+  z-index:3;
+  transform:translate3d(0,0,0);
+  box-shadow:2px 0 5px -2px rgba(24,38,72,.24),
+             10px 6px 24px -10px rgba(24,38,72,.38),
+             0 1px 3px rgba(10,16,30,.10);
+}
+/* 后面那张：往右下退，露右边和底边 */
+.wx-card.wx-behind{
+  z-index:2;cursor:pointer;
+  transform:translate3d(28px,10px,0);
+  box-shadow:-3px 8px 20px rgba(0,0,0,.38);
+}
+/* 切过去的瞬间，正在退出的那张不要挡住进来的 */
+/* 后面那张的内容要藏起来，只留卡片本体当"脊背"。
+   用 opacity 而不是 visibility：切换时它是渐变的，visibility 会突然闪一下。 */
+.wx-card.wx-behind > *{opacity:0;transition:opacity .18s ease}
+.wx-card.wx-front > *{opacity:1;transition:opacity .26s ease .06s}
+html[data-wall="none"] .wx-card{
+  background:rgba(255,255,255,.62);border-color:rgba(16,20,32,.10);
+  text-shadow:none;color:var(--ink);
+}
+/* 暗色：堆叠时最前面那张要够实（用户定的 80%），后面那张跟日历同档（62%） */
+html:not([data-wall="none"]) .wx-card.wx-front{background:rgba(20,26,40,.80)}
+html:not([data-wall="none"]) .wx-card.wx-behind{background:rgba(20,26,40,.62)}
+.wx-days{display:flex;flex-direction:column}
+.wx-day{
+  display:flex;align-items:center;gap:7px;padding:7px 2px;
+  border-bottom:1px solid var(--wg-line);font-size:12.5px;cursor:pointer;
+}
+html[data-wall="none"] .wx-day{border-bottom-color:rgba(16,20,32,.07)}
+.wx-day:last-child{border-bottom:none}
+.wx-day-n{width:34px;flex:0 0 34px;color:var(--wg-muted);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+html[data-wall="none"] .wx-day-n{color:rgba(16,20,32,.6)}
+.wx-day-i{width:18px;height:18px;flex:0 0 18px;display:flex;align-items:center}
+.wx-day-i svg{width:18px;height:18px}
+.wx-day-sp{flex:1}
+.wx-day-lo{color:var(--wg-faint);font-variant-numeric:tabular-nums}
+html[data-wall="none"] .wx-day-lo{color:rgba(16,20,32,.45)}
+.wx-day-hi{font-weight:600;font-variant-numeric:tabular-nums;min-width:28px;text-align:right;padding-right:12px}
+/* 两张卡必须等高：5 日卡 6 行撑起来的高度，详情卡内容少会矮一截，
+   切换时卡片"缩一下"，很跳。统一 min-height 兜住。 */
+.wx-card{min-height:224px;display:flex;flex-direction:column}
+/* 详情：两列三行，每格是「图标 + 标签」一行，值一行 */
+/* 四行铺满整张卡：align-content:space-between 把四行均匀撑开，
+   否则内容都堆在上半部分，底下空一大块（用户指出的就是这个） */
+.wx-detail{display:grid;grid-template-columns:1fr 1fr;gap:8px 14px;align-content:space-between;flex:1;min-height:0}
+.wx-d-h{display:flex;align-items:center;gap:5px;margin-bottom:3px}
+.wx-d-h svg{width:13px;height:13px;flex:0 0 13px;opacity:.75}
+.wx-d-l{font-size:10.5px;color:var(--wg-faint);letter-spacing:.2px}
+html[data-wall="none"] .wx-d-l{color:rgba(16,20,32,.5)}
+.wx-d-v{font-size:15px;font-weight:600;font-variant-numeric:tabular-nums;padding-left:19px}
+/* 风向这种值长度不定："西南偏南 5km/h" 正好一行，"西北偏北 120km/h" 就会折，
+   折了会把下面那行顶歪。直接单行 + 省略号，宁可截断也不让它破坏网格。 */
+.wx-d-v.sm{font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+
+.wx-dots{position:absolute;left:0;right:0;bottom:0;height:22px;z-index:6;
+  display:flex;gap:5px;justify-content:center;align-items:center}
+.wx-dots i{width:14px;height:3px;border-radius:2px;background:var(--wg-dim);cursor:pointer;transition:background .2s,width .2s}
+.wx-dots i.on{background:var(--wg-ink);width:20px}
+html[data-wall="none"] .wx-dots i{background:rgba(16,20,32,.18)}
+html[data-wall="none"] .wx-dots i.on{background:rgba(16,20,32,.62)}
+
 .wg-dl{padding-bottom:16px;overflow-y:auto;overscroll-behavior:contain;
        scrollbar-width:thin}   /* 最后一行贴着卡片圆角会被误看成「被切了」 */
 .wg-dl .dl-row:first-of-type{border-top:0}
@@ -1186,7 +1312,10 @@ html[data-wall="none"] .ck-wx .ck-sub{color:var(--muted)}
 .ck-wx{
   display:flex;align-items:center;justify-content:flex-end;gap:5px;margin-top:10px;
   font-size:18px;opacity:.96;
+  /* 不换行：宽度紧的时候「晴朗」会被拆成「晴/朗」两行，最高最低温也会掉下去 */
+  flex-wrap:nowrap;white-space:nowrap;
 }
+.ck-wx > *{flex:0 0 auto}
 /* 高低温是次要信息，压一级：更小更淡，让「城市 + 温度 + 天气」这一组先被读到。
    原来 15px / opacity .9 和正文 18px 差得太少，240 宽的卡片里 5 个元素挤成一条 */
 .ck-wx .ck-hl{font-size:13px;opacity:.68;margin-left:1px;font-variant-numeric:tabular-nums}
@@ -3077,8 +3206,13 @@ html:not([data-wall="none"]) .dlg-in:focus{
 
   // 下方卡片的排布列表（2026-11-20）：勾选 = 显示，↑↓ = 调上下顺序，
   // SET.widgets 的数组顺序就是右侧栏从上往下的渲染顺序。
+  // 设置面板「下方卡片」列表。加一个 widget 要同时改三处，少一处就"功能做了但用不了"：
+  //   ① 这里（设置里能勾选）
+  //   ② WIDGETS 对象（渲染器）
+  //   ③ 后端 store.go 的 widgetAllowed（不然存进去被白名单丢掉）
   var ALL_WIDGETS = [
     { k: "calendar",  n: "日历" },
+    { k: "weather",   n: "天气" },
     { k: "downloads", n: "下载" }
   ];
 
@@ -3088,8 +3222,22 @@ html:not([data-wall="none"]) .dlg-in:focus{
     var box = document.getElementById("wgList");
     if (!box) return;
     var on = wgKeys();
-    var h = "";
+
+    // 列表必须【按 SET.widgets 的实际顺序】排，不能按 ALL_WIDGETS 的代码顺序。
+    // 之前是固定顺序、只标勾选状态 —— 用户点↑↓ 看到箭头状态变了、条目不动，
+    // 而右侧栏其实已经换了位置，两边对不上，等于这个排序功能看着是坏的。
+    // 规则：已选中的按 widgets 顺序排在前面，未选中的按代码顺序跟在后面。
+    var ordered = [];
+    on.forEach(function (k) {
+      var w = ALL_WIDGETS.filter(function (x) { return x.k === k; })[0];
+      if (w) ordered.push(w);
+    });
     ALL_WIDGETS.forEach(function (w) {
+      if (on.indexOf(w.k) < 0) ordered.push(w);
+    });
+
+    var h = "";
+    ordered.forEach(function (w) {
       var idx = on.indexOf(w.k), isOn = idx >= 0;
       var canUp = isOn && idx > 0;
       var canDn = isOn && idx < on.length - 1;
@@ -4228,9 +4376,131 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   }
 
   // widget 注册表：key -> 渲染函数
+  /* ---------- 天气卡片：5 天竖排 + 今天详情，左右堆叠 ----------
+     两张卡叠在同一格里：当前那张完整显示，另一张往右推出只露一条边，
+     点那条边就换过去。这样右栏不会因为卡片变多而无限往下堆。 */
+  var WX_FC = null;           // 预报数据（/api/weather/forecast）
+  // 当前翻到的是不是详情那张。要落 localStorage —— 只是内存变量的话，
+  // 用户翻到详情页、一刷新就回到 5 日卡，等于每次都白翻一遍。
+  // 这是纯展示偏好，不进 SET（那是服务端设置，改了会同步到别的设备）。
+  var WX_PANE_KEY = "justnav:wxPane";
+  var wxWantsDetail = (function () {
+    try { return localStorage.getItem(WX_PANE_KEY) === "detail"; } catch (e) { return false; }
+  })();
+
+  function loadForecast() {
+    if (!LIVE) return Promise.resolve();
+    return api("/api/weather/forecast")
+      .then(function (r) { return r.json(); })
+      .then(function (j) {
+        WX_FC = (j && j.ok) ? j.forecast : null;
+        renderWidget();
+      })
+      .catch(function () { WX_FC = null; renderWidget(); });
+  }
+
+  function renderWeather(el) {
+    if (!WX_FC || !WX_FC.days || !WX_FC.days.length) {
+      el.innerHTML = '<div class="wx-card wx-front" style="position:relative;font-size:12px;opacity:.7">天气不可用</div>';
+      return;
+    }
+    // 已经渲染过就只切 class —— 重建 DOM 会把过渡动画干掉
+    if (el.querySelector('.wx-stack')) { applyWxPane(el); return; }
+
+    var f = WX_FC, n = f.now || {};
+    var shortDay = function (s) { return String(s || '').replace(/^星期/, '周'); };
+    var days = f.days.map(function (d) {
+      return '<div class="wx-day">' +
+        '<span class="wx-day-n">' + dlEsc(shortDay(d.day)) + '</span>' +
+        '<span class="wx-day-i">' + wxIcon(d.icon) + '</span>' +
+        '<span class="wx-day-sp"></span>' +
+        '<span class="wx-day-lo">' + Math.round(d.low) + '\u00b0</span>' +
+        '<span class="wx-day-hi">' + Math.round(d.high) + '\u00b0</span>' +
+      '</div>';
+    }).join('');
+
+    // 详情项的图标：13px 线性，跟界面其它 icon 一个粗细
+    var IC = {
+      feels: '<path d="M12 14.8V5.5a2.2 2.2 0 1 1 4.4 0v9.3a3.6 3.6 0 1 1-4.4 0z"/><path d="M14.2 9v6"/>',
+      hum:   '<path d="M12 3.5s5 5.6 5 9a5 5 0 0 1-10 0c0-3.4 5-9 5-9z"/>',
+      wind:  '<path d="M3 8h10a3 3 0 1 0-3-3"/><path d="M3 12h14a3 3 0 1 1-3 3"/><path d="M3 16h7"/>',
+      uv:    '<circle cx="12" cy="12" r="3.6"/><path d="M12 3.2v2M12 18.8v2M3.2 12h2M18.8 12h2M5.9 5.9l1.4 1.4M16.7 16.7l1.4 1.4M18.1 5.9l-1.4 1.4M7.3 16.7l-1.4 1.4"/>',
+      rise:  '<path d="M12 4v9"/><path d="m8.4 7.6 3.6-3.6 3.6 3.6"/><path d="M3.5 19h17"/>',
+      set:   '<path d="M12 13V4"/><path d="m8.4 9.4 3.6 3.6 3.6-3.6"/><path d="M3.5 19h17"/>',
+      vis:   '<path d="M2 12s3.7-6 10-6 10 6 10 6-3.7 6-10 6S2 12 2 12z"/><circle cx="12" cy="12" r="2.6"/>',
+      pres:  '<circle cx="12" cy="12" r="8.6"/><path d="M12 12 8.4 8.4"/><path d="M12 3.4v2"/>'
+    };
+    var ic = function (k) {
+      return '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.7" ' +
+             'stroke-linecap="round" stroke-linejoin="round">' + IC[k] + '</svg>';
+    };
+    var cell = function (label, iconKey, val, small) {
+      return '<div>' +
+               '<div class="wx-d-h">' + ic(iconKey) + '<span class="wx-d-l">' + label + '</span></div>' +
+               '<div class="wx-d-v' + (small ? ' sm' : '') + '">' + (val || '\u2014') + '</div>' +
+             '</div>';
+    };
+    var detail =
+      cell('\u4f53\u611f', 'feels', n.feels != null ? Math.round(n.feels) + '\u00b0' : '') +
+      cell('\u6e7f\u5ea6', 'hum', n.humidity ? n.humidity + '%' : '') +
+      cell('\u98ce', 'wind', n.wind ? dlEsc(n.wind) : '', true) +
+      cell('\u7d2b\u5916\u7ebf', 'uv', n.uv ? dlEsc(n.uv) : '', true) +
+      cell('\u65e5\u51fa', 'rise', n.sunrise || '', true) +
+      cell('\u65e5\u843d', 'set', n.sunset || '', true) +
+      cell('\u80fd\u89c1\u5ea6', 'vis', n.visibility ? n.visibility.toFixed(1) + ' km' : '', true) +
+      cell('\u6c14\u538b', 'pres', n.pressure ? Math.round(n.pressure) + ' hPa' : '', true);
+
+    el.innerHTML =
+      '<div class="wx-stack">' +
+        '<div class="wx-card wx-days-card" data-pane="days">' + days + '</div>' +
+        '<div class="wx-card wx-detail-card" data-pane="detail"><div class="wx-detail">' + detail + '</div></div>' +
+        '<div class="wx-dots"><i data-i="0"></i><i data-i="1"></i></div>' +
+      '</div>';
+
+    var toggle = function (which) {
+      var want = (which === undefined) ? !wxWantsDetail : which;
+      if (want === wxWantsDetail) return;
+      wxWantsDetail = want;
+      applyWxPane(el);
+    };
+    // 背卡整块都可点（含露出的边），不再只有 28px 能点到
+    // 两张卡都能点：点当前这张也能翻过去（只在背卡上监听的话，
+    // 用户看着整张卡却点不动，得去够右边那 28px）
+    el.querySelectorAll('.wx-card').forEach(function (card) {
+      card.addEventListener('click', function () { toggle(); });
+    });
+    el.querySelectorAll('.wx-dots i').forEach(function (dot) {
+      dot.addEventListener('click', function () { toggle(dot.dataset.i === '1'); });
+    });
+
+    applyWxPane(el);
+  }
+
+  // 只改 class + data-show，transform 交给 CSS 过渡
+  function applyWxPane(el) {
+    var stack = el.querySelector('.wx-stack');
+    if (!stack) return;
+    stack.dataset.show = wxWantsDetail ? 'detail' : 'days';
+    var daysCard = stack.querySelector('.wx-days-card');
+    var detailCard = stack.querySelector('.wx-detail-card');
+    if (daysCard) {
+      daysCard.classList.toggle('wx-front', !wxWantsDetail);
+      daysCard.classList.toggle('wx-behind', wxWantsDetail);
+    }
+    if (detailCard) {
+      detailCard.classList.toggle('wx-front', wxWantsDetail);
+      detailCard.classList.toggle('wx-behind', !wxWantsDetail);
+    }
+    stack.querySelectorAll('.wx-dots i').forEach(function (dot) {
+      dot.classList.toggle('on', (dot.dataset.i === '1') === wxWantsDetail);
+    });
+    try { localStorage.setItem(WX_PANE_KEY, wxWantsDetail ? "detail" : "days"); } catch (e) {}
+  }
+
   var WIDGETS = {
     calendar: { name: "日历", render: renderCalendar },
     downloads: { name: "下载", render: renderDownloads, onShow: function () { loadDownloads(); dlTimerOn(); }, onHide: dlTimerOff },
+    weather: { name: "天气", render: renderWeather, onShow: function () { loadForecast(); } },
   };
 
   /* 主滚动区：滚动条静止时隐藏，滚起来才显形（2026-11-20）
@@ -4458,12 +4728,12 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   }
 
   /* 天气多久拉一次。
-     后端缓存也是 30 分钟，两边对齐 —— 拉得比缓存快只是白打本地接口。
+     后端缓存也是 1 小时，两边对齐 —— 拉得比缓存快只是白打本地接口。
      为什么不是「一天一次」：这里拿到的是【当前实测温度】，一天只拉一次的话
      早上 8 点的 6° 会一直显示到晚上（宁波日较差 6°~13°），一看就是错的。
      真正一天不变的只有「当日最高/最低」，那个由后端按「同一天」判断缓存
      （见 weather.go 的 Current），跨天会自动重取。 */
-  var CK_WX_PERIOD = 30 * 60 * 1000;
+  var CK_WX_PERIOD = 60 * 60 * 1000;
   var ckWxAt = 0;                  // 上次成功拉取的时间戳
   function scheduleWeather() {
     if (ckWxTimer) clearTimeout(ckWxTimer);

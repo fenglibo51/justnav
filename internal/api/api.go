@@ -109,6 +109,7 @@ func (s *Server) Routes() http.Handler {
 	mux.HandleFunc("POST /api/downloaders/test", s.handleDownloaderTest)
 
 	mux.HandleFunc("GET /api/weather", s.handleWeather)
+	mux.HandleFunc("GET /api/weather/forecast", s.handleWeatherForecast)
 	mux.HandleFunc("GET /api/weather/search", s.handleWeatherSearch)
 
 	// 静态资源：embed 的前端
@@ -983,6 +984,46 @@ func (s *Server) handleWeather(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "weather": now})
+}
+
+// handleWeatherForecast 右侧栏天气卡片用的 5 天预报 + 今天详情。
+// 数据源只有 TWC 有（中国天气网/open-meteo 的日高低温都不全），拿不到就返回 ok:false，
+// 前端把这张卡收起来，不影响导航。
+func (s *Server) handleWeatherForecast(w http.ResponseWriter, r *http.Request) {
+	st, _, ok := s.storeFor(w, r)
+	if !ok {
+		return
+	}
+	set := st.Snapshot().Settings.Weather
+	if set.City == "" || (set.Lat == 0 && set.Lon == 0) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "needCity": true})
+		return
+	}
+	if s.Weather == nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": "天气未启用"})
+		return
+	}
+	ctx, cancel := context.WithTimeout(r.Context(), 8*time.Second)
+	defer cancel()
+
+	// 拿一次实况，一是为了失败时能早退，二是今天的图标要用实况那个
+	now, err := s.Weather.Current(ctx, set.City, set.Lat, set.Lon)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	fc, err := s.Weather.FetchForecast(ctx, set.City, set.Lat, set.Lon, now.Code)
+	if err != nil {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+		return
+	}
+	fc.Now.Feels = now.Feels
+	if fc.Now.Humidity == 0 {
+		fc.Now.Humidity = now.Humidity
+	}
+	fc.Now.Visibility = now.Visibility
+	fc.Now.Pressure = now.Pressure
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "forecast": fc})
 }
 
 func (s *Server) handleWeatherSearch(w http.ResponseWriter, r *http.Request) {

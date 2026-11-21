@@ -107,6 +107,7 @@ func (s *Store) ClearWidget() error {
 var widgetAllowed = map[string]bool{
 	"calendar":  true,
 	"downloads": true,
+	"weather":   true, // 5 天预报 + 今天详情（数据来自 TWC，见 internal/weather/forecast.go）
 }
 
 // sanitizeWidgets 过滤白名单 + 去重，保持传入顺序。

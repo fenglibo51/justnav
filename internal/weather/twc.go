@@ -68,8 +68,10 @@ func (c *Client) fetchTWC(ctx context.Context, city string, lat, lon float64) (N
 		Phrase   string   `json:"wxPhraseLong"`
 		Cloud    string   `json:"cloudCoverPhrase"`
 		Icon     int      `json:"iconCode"`
-		Max      *float64 `json:"temperatureMax24Hour"`
-		Min      *float64 `json:"temperatureMin24Hour"`
+		Max        *float64 `json:"temperatureMax24Hour"`
+		Min        *float64 `json:"temperatureMin24Hour"`
+		Visibility *float64 `json:"visibility"`            // km
+		Pressure   *float64 `json:"pressureMeanSeaLevel"`  // hPa
 	}
 	if err := json.Unmarshal(body, &d); err != nil {
 		return Now{}, fmt.Errorf("TWC 解析失败: %w", err)
@@ -89,6 +91,12 @@ func (c *Client) fetchTWC(ctx context.Context, city string, lat, lon float64) (N
 	now.Text = d.Phrase
 	if now.Text == "" {
 		now.Text = d.Cloud
+	}
+	if d.Visibility != nil {
+		now.Visibility = *d.Visibility
+	}
+	if d.Pressure != nil {
+		now.Pressure = *d.Pressure
 	}
 	if d.Max != nil {
 		now.Max = *d.Max

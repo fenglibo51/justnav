@@ -35,11 +35,11 @@ const (
 	forecastURL = "https://api.open-meteo.com/v1/forecast"
 	geocodeURL  = "https://geocoding-api.open-meteo.com/v1/search"
 	wttrURL     = "https://wttr.in"
-	// 天气变化不快，30 分钟足够：实况温度在这段里最多变 1~2 度。
-	// 再长就会出现「傍晚还显示早上的温度」（宁波 6°~13° 这种日较差，
-	// 一天只拉一次会很离谱）。跨天必须重取 —— 高低温每天都不一样，
-	// 昨天的数据不能拿来用，这个在 Current() 里按「同一天」判断。
-	cacheTTL = 30 * time.Minute
+	// 天气变化不快，1 小时一次（用户定的）。实况温度在这段里最多变 2~3 度，
+	// 出现在仪表盘上可以接受 —— 再长就会「傍晚还显示早上的温度」。
+	// 跨天必须重取：高低温是「今天」的，昨天的拿到今天显示是错的，
+	// 这个在 Current() 里按「同一天」判断。
+	cacheTTL = time.Hour
 	// 失败结果只记 1 分钟：1 分钟内不重复打上游，过了就再试（上游恢复得快）
 	failTTL = time.Minute
 	// 上次成功的数据最多撑 6 小时，超过就当没有
@@ -49,15 +49,18 @@ const (
 )
 
 type Now struct {
-	City     string    `json:"city"`
-	Temp     float64   `json:"temp"`
-	Feels    float64   `json:"feels"`
-	Humidity int       `json:"humidity"`
-	Code     int       `json:"code"`
-	Text     string    `json:"text"`
-	Max      float64   `json:"max"`
-	Min      float64   `json:"min"`
-	At       time.Time `json:"at"`
+	City     string  `json:"city"`
+	Temp     float64 `json:"temp"`
+	Feels    float64 `json:"feels"`
+	Humidity int     `json:"humidity"`
+	Code     int     `json:"code"`
+	Text     string  `json:"text"`
+	Max      float64 `json:"max"`
+	Min      float64 `json:"min"`
+	// 这两个只有 TWC 给（它能见度单位 km、气压 hPa），别的源没有就留 0
+	Visibility float64   `json:"visibility,omitempty"`
+	Pressure   float64   `json:"pressure,omitempty"`
+	At         time.Time `json:"at"`
 }
 
 type Place struct {
