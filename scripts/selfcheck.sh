@@ -122,6 +122,14 @@ grep -vE '^[[:space:]]*//' internal/dockerx/docker.go | grep -q 'http://127.0.0.
   && bad "dockerx 还在造 127.0.0.1 地址（那是访问者自己的机器）" \
   || ok "dockerx 不造 127.0.0.1（交给前端用内网 IP 拼）"
 
+# ---------- SSRF 防护（A 档：只挡云元数据和链路本地）----------
+grep -Fq -- 'func blockedTarget(' internal/favicon/favicon.go && ok "favicon 有目标黑名单" || bad "favicon 没有 SSRF 防护"
+grep -Fq -- '169.254.0.0/16' internal/favicon/favicon.go && ok "挡了链路本地段（含云元数据）" || bad "云元数据可以访问"
+grep -Fq -- 'DialContext: func' internal/favicon/favicon.go && ok "连接前重新解析并校验 IP（防 DNS 重绑定）" || bad "只查 URL 字符串，DNS 重绑定能绕过"
+grep -Fq -- 'CheckRedirect: func' internal/favicon/favicon.go && ok "重定向逐跳校验" || bad "重定向没校验，跳一次就绕过"
+# 内网必须放行 —— 封了等于 NAS 服务图标全抓不到
+grep -Fq -- '192.168.1.10:8096' internal/favicon/ssrf_test.go && ok "单测覆盖内网放行场景" || bad "没测内网是否被误封"
+
 # ---------- 正式 Compose 必须能直接跑 ----------
 grep -Fq -- 'entrypoint: ["/app/justnav"]' compose.yaml \
   && bad "正式 compose 还在覆盖 entrypoint（镜像里没这个路径）" || ok "正式 compose 不覆盖 entrypoint"

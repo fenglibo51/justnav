@@ -12,6 +12,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
 	"net/url"
 	"os"
@@ -99,6 +100,69 @@ type Fetcher struct {
 	inflight map[string]bool
 }
 
+/* ---------- SSRF 防护 ----------
+
+只挡「绝对不是导航目标」的地址：
+
+  169.254.0.0/16        链路本地，含云元数据 169.254.169.254（里面有临时凭据）
+  fd00:ec2::254         IPv6 的云元数据
+  metadata.google.internal
+
+内网 192.168.* / 10.* / 172.16.* 一律放行 —— JustNav 本来就是 NAS 导航页，
+那些正是它要访问的服务。一刀切封掉等于所有内网服务都显示离线，功能就废了。
+能进到你内网的人本来就能直接访问那些管理口，favicon 这条路径不额外增加多少风险。
+
+防护点有两处，缺一不可：
+
+  ① DialContext   先解析 DNS，再检查解析出来的 IP。
+                  只查 URL 字符串会被「自己的域名解析到 169.254.169.254」绕过（DNS 重绑定）。
+  ② CheckRedirect 每次跳转重新走一遍检查。
+                  否则第一次地址合法、跳转后打到管理端点就绕过去了。
+*/
+var blockedNets = func() []*net.IPNet {
+	var out []*net.IPNet
+	for _, c := range []string{"169.254.0.0/16", "fd00:ec2::254/128"} {
+		if _, n, err := net.ParseCIDR(c); err == nil {
+			out = append(out, n)
+		}
+	}
+	return out
+}()
+
+var blockedHosts = map[string]bool{
+	"metadata.google.internal": true,
+	"metadata":                 true,
+}
+
+func blockedIP(ip net.IP) bool {
+	if ip == nil {
+		return false
+	}
+	if v4 := ip.To4(); v4 != nil {
+		ip = v4 // IPv4-mapped IPv6 转回 IPv4 再判
+	}
+	for _, n := range blockedNets {
+		if n.Contains(ip) {
+			return true
+		}
+	}
+	return false
+}
+
+// blockedTarget 静态判断一个 URL 是否指向禁访目标。
+func blockedTarget(u *url.URL) bool {
+	if u == nil {
+		return true
+	}
+	if blockedHosts[strings.ToLower(u.Hostname())] {
+		return true
+	}
+	if ip := net.ParseIP(u.Hostname()); ip != nil && blockedIP(ip) {
+		return true
+	}
+	return false
+}
+
 func New(dir string, insecure bool) *Fetcher {
 	tr := &http.Transport{
 		Proxy: nil,
@@ -106,10 +170,43 @@ func New(dir string, insecure bool) *Fetcher {
 			InsecureSkipVerify: insecure, // #nosec G402 —— 内网自签证书是常态
 		},
 		MaxIdleConnsPerHost: 2,
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+			if err != nil {
+				return nil, err
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("解析不到 %s", host)
+			}
+			for _, ipa := range ips {
+				if blockedIP(ipa.IP) {
+					return nil, fmt.Errorf("拒绝连接 %s：该地址不允许抓取", ipa.IP)
+				}
+			}
+			// 用已解析的 IP 直连，避免二次解析被换掉
+			var d net.Dialer
+			return d.DialContext(ctx, network, net.JoinHostPort(ips[0].IP.String(), port))
+		},
 	}
 	return &Fetcher{
-		dir:      dir,
-		client:   &http.Client{Transport: tr, Timeout: 8 * time.Second},
+		dir: dir,
+		client: &http.Client{
+			Transport: tr,
+			Timeout:   8 * time.Second,
+			CheckRedirect: func(req *http.Request, via []*http.Request) error {
+				if len(via) >= 5 {
+					return errors.New("重定向次数过多")
+				}
+				if blockedTarget(req.URL) {
+					return errors.New("重定向目标不允许")
+				}
+				return nil
+			},
+		},
 		inflight: map[string]bool{},
 	}
 }
