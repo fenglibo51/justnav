@@ -15,6 +15,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
@@ -151,9 +152,16 @@ type Data struct {
 }
 
 type Store struct {
-	mu   sync.RWMutex
-	path string
-	data Data
+	mu sync.RWMutex
+	// saveMu 串行化「序列化 → 写临时文件 → rename」这一整段。
+	//
+	// 只有 mu 不够：Save 拿的是 RLock，只护住"把内存拍成 JSON"那一下，
+	// 写盘和 rename 都在锁外。两个并发 Save 可能先后拿到各自的快照，却
+	// 反向完成 rename —— 磁盘最后留下较旧的那份，丢掉最后一次修改。
+	// 单文件原子 rename 只保证不出现半截 JSON，保证不了版本顺序。
+	saveMu sync.Mutex
+	path   string
+	data   Data
 }
 
 func New(dir string) *Store {
@@ -175,6 +183,10 @@ func (s *Store) Load() error {
 	if err != nil {
 		return fmt.Errorf("读取 %s: %w", s.path, err)
 	}
+	// 老版本可能把 nav.json 建成 0644，而 Settings.Downloaders[].Pass 里
+	// 存的是明文下载器密码。升级后用户什么都没做，那个文件就一直对同机
+	// 其他用户可读 —— 所以读到了就得顺手收紧。
+	tightenPerm(s.path)
 	var d Data
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return fmt.Errorf("解析 %s: %w", s.path, err)
@@ -210,6 +222,9 @@ func (s *Store) Load() error {
 
 // Save 原子写入。
 func (s *Store) Save() error {
+	s.saveMu.Lock()
+	defer s.saveMu.Unlock()
+
 	s.mu.RLock()
 	payload, err := json.MarshalIndent(s.data, "", "  ")
 	s.mu.RUnlock()
@@ -738,6 +753,29 @@ func defaultData() Data {
 			Engines:  DefaultEngines(),
 		},
 	}
+}
+
+// tightenPerm 把已存在的敏感文件收到 0600。
+//
+// 只收紧、不放宽：组和其他人都没权限的文件（0400 / 0000）原样不动。
+//
+// 失败必须留痕 —— 只读卷、uid 不匹配、容器里挂的是别人的文件时，
+// chmod 会失败。用户有权知道"你以为收紧了，其实没有"，不能静默当成安全。
+func tightenPerm(path string) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return
+	}
+	if fi.Mode().Perm()&0o077 == 0 {
+		return // 已经是 0600 或更严
+	}
+	old := fi.Mode().Perm()
+	if err := os.Chmod(path, 0o600); err != nil {
+		log.Printf("⚠️  收紧 %s 权限失败（当前 %v）：%v —— 文件里可能有下载器明文密码，"+
+			"请手动 chmod 600", path, old, err)
+		return
+	}
+	log.Printf("已把 %s 权限从 %v 收紧到 0600", path, old)
 }
 
 func atomicWrite(path string, payload []byte) error {

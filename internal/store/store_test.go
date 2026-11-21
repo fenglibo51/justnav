@@ -505,3 +505,82 @@ func TestSnapshotUnchangedByLaterWrites(t *testing.T) {
 		t.Error("内部新增的键出现在旧快照里")
 	}
 }
+
+// 老版本可能把 nav.json 建成 0644，而里面的 Settings.Downloaders[].Pass
+// 是明文下载器密码。Load() 只 ReadFile 不 chmod 的话，升级后那个文件
+// 一直是 0644 —— 用户什么都不做就永远泄露着。
+func TestLoadTightensExistingPermission(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "nav.json")
+	body := []byte(`{"version":1,"groups":["未分组"],"items":[]}`)
+	if err := os.WriteFile(path, body, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(path, 0o644); err != nil {
+		t.Fatal(err)
+	}
+	before, _ := os.Stat(path)
+	t.Logf("加载前权限 %v", before.Mode().Perm())
+
+	st := New(dir)
+	if err := st.Load(); err != nil {
+		t.Fatal(err)
+	}
+
+	after, err := os.Stat(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Logf("加载后权限 %v", after.Mode().Perm())
+	if after.Mode().Perm() != 0o600 {
+		t.Errorf("加载后应收到 0600，实际 %v —— 旧 nav.json 的下载器密码仍然对全机可读",
+			after.Mode().Perm())
+	}
+}
+
+// Save() 的序列化和落盘在锁外，两个并发 Save 可能反向完成 rename，
+// 磁盘最终留下较旧的那份。用「并发 Upsert 后重新加载看有没有丢条目」
+// 来探测 —— Upsert 是 read-modify-write + Save，正好是并发 Save 场景。
+func TestConcurrentSaveKeepsAllWrites(t *testing.T) {
+	const rounds = 8
+	const perGoroutine = 10
+	const want = perGoroutine * 2
+	lost := 0
+	for r := 0; r < rounds; r++ {
+		dir := t.TempDir()
+		st := New(dir)
+		if err := st.Load(); err != nil {
+			t.Fatal(err)
+		}
+
+		var wg sync.WaitGroup
+		wg.Add(2)
+		for _, p := range []string{"a", "b"} {
+			go func(prefix string) {
+				defer wg.Done()
+				for i := 0; i < perGoroutine; i++ {
+					_ = st.Upsert(Item{
+						Name:     prefix + "-" + string(rune('a'+i)),
+						Internal: "http://" + prefix + ".example",
+					})
+				}
+			}(p)
+		}
+		wg.Wait()
+
+		// 换个 Store 重新从磁盘读，看并发写的都在不在
+		fresh := New(dir)
+		if err := fresh.Load(); err != nil {
+			t.Fatal(err)
+		}
+		if got := len(fresh.List()); got != want {
+			lost++
+			if lost <= 3 {
+				t.Logf("第 %d 轮：磁盘上只有 %d 条，丢了 %d 条", r, got, want-got)
+			}
+		}
+	}
+	if lost > 0 {
+		t.Errorf("%d/%d 轮出现并发保存丢写 —— Save() 的落盘顺序没有串行化", lost, rounds)
+	}
+}
