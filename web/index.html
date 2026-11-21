@@ -3399,10 +3399,14 @@ html:not([data-wall="none"]) .dlg-in:focus{
         '<button data-act="rename" title="重命名">✎</button>' +
         '<button data-act="del" title="删除">✕</button></span>'
       : '';
-    return '<div class="nav-i" role="button" tabindex="0" data-g="' + id + '" aria-selected="' +
+    // ★ id 和 label 都来自用户建的分组名（手动 / 书签导入 / nav.group 标签），
+    //   是不可信输入。id 进 data-g 属性、label 进可见文本，两处都必须转义，
+    //   否则分组名叫 <img src=x onerror=...> 就能在侧栏执行任意 JS。
+    //   注意 state.group === id 的比较仍用原始值，不能拿转义后的比。
+    return '<div class="nav-i" role="button" tabindex="0" data-g="' + esc(id) + '" aria-selected="' +
       (state.group === id ? "true" : "false") + '">' + svg(ic) +
       '<span style="min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' +
-      label + '</span><span class="n">' + n + '</span>' + acts + '</div>';
+      esc(label) + '</span><span class="n">' + n + '</span>' + acts + '</div>';
   }
   function buildNav(){
     var html = '<div class="nav-t-row"><span class="t">分组</span>' +
@@ -3454,9 +3458,11 @@ html:not([data-wall="none"]) .dlg-in:focus{
       tabs.push({ id:s.g, ic:groupIcon(s.g), t:s.g });
     });
     elTabbar.innerHTML = tabs.map(function(x){
-      return '<button data-g="' + x.id + '" aria-selected="' +
+      // x.id 进 data-g 属性、x.t 进可见文本 —— 都是分组名，必须转义。
+      // 手机上切分组时这条路径也会渲染，注入点跟桌面侧栏一样真实。
+      return '<button data-g="' + esc(x.id) + '" aria-selected="' +
         (state.group === x.id ? "true" : "false") + '">' + svg(x.ic) +
-        '<span>' + x.t + '</span></button>';
+        '<span>' + esc(x.t) + '</span></button>';
     }).join("");
     elTabbar.querySelectorAll("button").forEach(function(b){
       b.addEventListener("click", function(){ select(b.dataset.g); });
@@ -3715,7 +3721,8 @@ html:not([data-wall="none"]) .dlg-in:focus{
       });
       if (!items.length) return;
       shown += items.length;
-      html += '<section class="sect" data-group="' + s.g + '"><div class="sect-h"><h2>' + s.g +
+      // data-group 属性 + h2 可见文本，两处都是分组名，都要转义
+      html += '<section class="sect" data-group="' + esc(s.g) + '"><div class="sect-h"><h2>' + esc(s.g) +
         '</h2><span class="cnt">' + items.length + '</span><div class="rule"></div></div>' +
         '<div class="grid">' + items.map(cardHTML).join("") + '</div></section>';
     });
@@ -4475,8 +4482,8 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       cell('\u6e7f\u5ea6', 'hum', n.humidity ? n.humidity + '%' : '') +
       cell('\u98ce', 'wind', n.wind ? dlEsc(n.wind) : '', true) +
       cell('\u7d2b\u5916\u7ebf', 'uv', n.uv ? dlEsc(n.uv) : '', true) +
-      cell('\u65e5\u51fa', 'rise', n.sunrise || '', true) +
-      cell('\u65e5\u843d', 'set', n.sunset || '', true) +
+      cell('\u65e5\u51fa', 'rise', dlEsc(n.sunrise || ''), true) +
+      cell('\u65e5\u843d', 'set', dlEsc(n.sunset || ''), true) +
       cell('\u80fd\u89c1\u5ea6', 'vis', n.visibility ? n.visibility.toFixed(1) + ' km' : '', true) +
       cell('\u6c14\u538b', 'pres', n.pressure ? Math.round(n.pressure) + ' hPa' : '', true);
 
@@ -4843,22 +4850,29 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
 
   function paintSug() {
     if (!SUG.rows.length) { sugEl.classList.remove("open"); sugEl.innerHTML = ""; return; }
+    // ⚠️ 这里的每一段都可能是不可信输入：
+    //   r.url  — 用户正在输入的网址
+    //   r.it.n — 卡片名（可来自 Docker 容器名 / nav.name 标签）
+    //   r.g    — 分组名
+    //   r.e.name — 自定义搜索引擎名
+    //   r.q    — 正在输入的搜索词，边打边渲染，最容易触发
+    // 全部必须 esc()。svg()/engineLabel() 走内部白名单，不转义。
     sugEl.innerHTML = SUG.rows.map(function (r, i) {
       var sel = i === SUG.sel ? "1" : "0";
       if (r.type === "url") {
         return '<div class="sug-item" data-i="' + i + '" data-sel="' + sel + '">' +
-          '<span class="eb">↗</span><span class="t">打开 ' + r.url + '</span>' +
+          '<span class="eb">↗</span><span class="t">打开 ' + esc(r.url) + '</span>' +
           '<span class="sub">网址</span></div>';
       }
       if (r.type === "item") {
         return '<div class="sug-item" data-i="' + i + '" data-sel="' + sel + '">' +
-          '<div class="ico" data-h="' + r.it.h + '">' + svg(r.it.ic) + '</div>' +
-          '<span class="t">' + r.it.n + '</span><span class="sub">' + r.g + '</span></div>';
+          '<div class="ico" data-h="' + esc(r.it.h) + '">' + svg(r.it.ic) + '</div>' +
+          '<span class="t">' + esc(r.it.n) + '</span><span class="sub">' + esc(r.g) + '</span></div>';
       }
       return '<div class="sug-item" data-i="' + i + '" data-sel="' + sel + '">' +
-        '<span class="eb">' + engineLabel(r.e) + '</span>' +
-        '<span class="t">用' + r.e.name + '搜索</span>' +
-        '<span class="sub">' + r.q + '</span></div>';
+        '<span class="eb">' + esc(engineLabel(r.e)) + '</span>' +
+        '<span class="t">用' + esc(r.e.name) + '搜索</span>' +
+        '<span class="sub">' + esc(r.q) + '</span></div>';
     }).join("");
     sugEl.classList.add("open");
 
@@ -4926,8 +4940,10 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   function paintEngMenu() {
     var list = enginesList();
     engMenuEl.innerHTML = list.map(function (e) {
-      return '<button data-id="' + e.id + '" aria-selected="' + (e.id === SET.engineId ? "true" : "false") + '">' +
-        '<span>' + e.name + '</span><span class="ck">✓</span></button>';
+      // e.id 进 data-id 属性、e.name 进可见文本 —— 都是用户自定义搜索引擎
+      // 存下来的持久化数据，属于不可信输入。
+      return '<button data-id="' + esc(e.id) + '" aria-selected="' + (e.id === SET.engineId ? "true" : "false") + '">' +
+        '<span>' + esc(e.name) + '</span><span class="ck">✓</span></button>';
     }).join("") +
       '<div class="tp-sep"></div>' +
       '<button data-manage="1"><span>管理搜索引擎</span></button>';
@@ -4965,11 +4981,12 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   function paintEngines() {
     var el = document.getElementById("engList");
     el.innerHTML = enginesList().map(function (e) {
-      return '<div class="eng-row"><span class="nm">' + e.name + '</span>' +
-        '<span class="u">' + e.url + '</span>' +
+      // 同上：e.id / e.name / e.url 都是用户存的搜索引擎数据
+      return '<div class="eng-row"><span class="nm">' + esc(e.name) + '</span>' +
+        '<span class="u">' + esc(e.url) + '</span>' +
         '<span class="acts">' +
-        '<button data-act="edit" data-id="' + e.id + '">编辑</button>' +
-        '<button class="del" data-act="del" data-id="' + e.id + '">删除</button>' +
+        '<button data-act="edit" data-id="' + esc(e.id) + '">编辑</button>' +
+        '<button class="del" data-act="del" data-id="' + esc(e.id) + '">删除</button>' +
         '</span></div>';
     }).join("");
 
@@ -5202,9 +5219,12 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     }
     list.innerHTML = rows.map(function (x) {
       var it = x.it;
+      // it.name 同时进 title 属性和可见文本，it.group 进可见文本。
+      // 隐藏区里的条目也是用户/Docker 标签来的名字，一样要转义 ——
+      // 首页不显示不代表打开隐藏区时不会执行。
       return '<div class="hidden-row">' +
-        '<span class="hr-n" title="' + it.name + '">' + it.name +
-        '<span class="hr-g">' + (it.group || "未分组") + '</span></span>' +
+        '<span class="hr-n" title="' + esc(it.name) + '">' + esc(it.name) +
+        '<span class="hr-g">' + esc(it.group || "未分组") + '</span></span>' +
         '<button data-restore="' + x.i + '">恢复</button>' +
         '<button class="hr-del" data-del="' + x.i + '">删除</button></div>';
     }).join("");
@@ -5301,7 +5321,7 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       .then(function (j) {
         if (!j.enabled) {
           $("#discList").innerHTML = '<div class="pal-none">Docker 发现未启用<br>' +
-            '<span style="font-size:11px;opacity:.75">' + (j.reason || "") + '</span></div>';
+            '<span style="font-size:11px;opacity:.75">' + esc(j.reason || "") + '</span></div>';
           return;
         }
         // 数据过期：采集器挂了或停了。旧候选还能看，但要在顶上标一句，
@@ -5502,7 +5522,11 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   }
 
   function applyServerItems(d) {
-    var byGroup = {}, order = [], hid = [];
+    // Object.create(null)：分组名是用户自己填的，随便叫什么都行。若用普通对象，
+    // 一个叫 "__proto__" 的分组会把它的值写进原型链，之后 byGroup[g] 取到的
+    // 不是数组而是别的东西，整页渲染直接崩成白屏（卡片 0 张、侧栏 0 项）。
+    // 无原型对象没有这条链，任何字符串键都只是普通键。
+    var byGroup = Object.create(null), order = [], hid = [];
     (d.items || []).forEach(function (it) {
       if (it.hidden) { hid.push(it); return; }
       var g = it.group || "未分组";
@@ -6602,10 +6626,13 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   function renderIconTiles(items, tip) {
     var gal = document.getElementById("hdGallery");
     if (!gal) return;
-    var html = tip ? '<div class="hd-tip">' + tip + '</div>' : "";
+    // tip 由调用方传，但里面可能夹搜索词；it.value / it.label / it.url 来自
+    // 图标库的 metadata.json（jsdelivr 上的外部 JSON）—— 一律按不可信处理。
+    // it.url 还要先过 safeUrl()，挡住 javascript: / data: 这类伪协议。
+    var html = tip ? '<div class="hd-tip">' + esc(tip) + '</div>' : "";
     items.forEach(function (it) {
-      html += '<button type="button" data-icon="' + it.value + '" title="' + (it.label || it.value) +
-        '"><img src="' + it.url + '" alt="" loading="lazy"></button>';
+      html += '<button type="button" data-icon="' + esc(it.value) + '" title="' + esc(it.label || it.value) +
+        '"><img src="' + esc(safeUrl(it.url)) + '" alt="" loading="lazy"></button>';
     });
     if (!items.length) html += '<div class="hd-more">没有匹配的图标，换个关键词试试（英文名更准）</div>';
     gal.innerHTML = html;
@@ -6932,8 +6959,10 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     var html = "";
     (DATA || []).forEach(function (x) {
       if (!x.g) return;
+      // 只替换双引号不够：& < > 一样能逃出属性或在文本里建节点。
+      // data-g 和可见文本统一走 esc()。
       html += '<div class="sel-opt"' + (x.g === cur ? ' data-on="1"' : '') +
-        ' role="option" data-g="' + String(x.g).replace(/"/g, "&quot;") + '">' + x.g + '</div>';
+        ' role="option" data-g="' + esc(x.g) + '">' + esc(x.g) + '</div>';
     });
     pop.innerHTML = html || '<div class="sel-opt" style="color:var(--faint);cursor:default">还没有其它分组</div>';
   }
@@ -7127,10 +7156,14 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       document.getElementById("impTitle").textContent =
         "可导入 " + prep.list.length + " 条" + (prep.skip ? "（跳过 " + prep.skip + " 条重复）" : "");
       var shown = prep.list.slice(0, 60);
+      // 预览三列全部来自外部书签文件，是不可信输入。
+      // ★ 关键：书签标题里写 HTML 实体（&lt;img src=x onerror=...&gt;）时，
+      //   DOMParser 的 textContent 会把它还原成字面标签，拼进 innerHTML 就执行。
+      //   用户只是选中文件打开预览就会触发，根本不用点「导入」。
       document.getElementById("impList").innerHTML = shown.map(function (x) {
-        return '<div class="imp-row"><span class="n">' + x.name + '</span>' +
-          '<span class="g">' + x.group + '</span>' +
-          '<span class="u">' + x.url + '</span></div>';
+        return '<div class="imp-row"><span class="n">' + esc(x.name) + '</span>' +
+          '<span class="g">' + esc(x.group) + '</span>' +
+          '<span class="u">' + esc(x.url) + '</span></div>';
       }).join("") + (prep.list.length > shown.length
         ? '<div class="imp-more">…还有 ' + (prep.list.length - shown.length) + ' 条</div>' : "");
 
