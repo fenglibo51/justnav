@@ -4,7 +4,9 @@ import (
 	"context"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -92,5 +94,40 @@ func TestTooLargeRejected(t *testing.T) {
 	f := New(t.TempDir(), true)
 	if _, err := f.Get(context.Background(), srv.URL); err == nil {
 		t.Error("超过体积上限的图标应该被拒绝")
+	}
+}
+
+// 云元数据地址在入口就该拒，别先发一次请求。
+// 同时确认 RFC1918 不被误杀 —— 局域网 IP 是正当的导航目标。
+func TestGetRejectsMetadataTargets(t *testing.T) {
+	f := New(t.TempDir(), false)
+	for _, u := range []string{
+		"http://169.254.169.254/latest/meta-data/",
+		"http://metadata.google.internal/",
+		"http://[fd00:ec2::254]/",
+	} {
+		_, err := f.Get(context.Background(), u)
+		if err == nil {
+			t.Errorf("%s 应该被拒", u)
+			continue
+		}
+		if !strings.Contains(err.Error(), "不允许抓取") {
+			t.Errorf("%s 拒绝理由不对: %v", u, err)
+		}
+	}
+	// RFC1918 不该被入口判成禁访目标。直接测 blockedTarget，
+	// 别真去连 —— 那会等到超时，测试白跑 30 秒。
+	for _, raw := range []string{
+		"http://192.168.1.10/",
+		"http://10.0.0.5:8080/",
+		"http://172.16.0.1/",
+	} {
+		u, err := url.Parse(raw)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if blockedTarget(u) {
+			t.Errorf("%s 是局域网地址，不该被 blockedTarget 拦", raw)
+		}
 	}
 }

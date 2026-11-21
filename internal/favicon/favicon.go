@@ -228,6 +228,13 @@ func (f *Fetcher) Get(ctx context.Context, rawURL string) (string, error) {
 	if u.Host == "" {
 		return "", errors.New("地址缺少主机名")
 	}
+	// 入口先静态判一次，跟 DNS 解析后的 IP 校验、逐跳重定向校验保持一致。
+	// 字面 IP（169.254.169.254 / fd00:ec2::254 这类云元数据）和 metadata
+	// 主机名在这里就能直接拒，不用先发请求。blockedNets 只含云元数据和链路
+	// 本地，RFC1918 不拦 —— 局域网 IP 是正当的导航目标。
+	if blockedTarget(u) {
+		return "", errors.New("这个地址不允许抓取")
+	}
 
 	base := u.Scheme + "://" + u.Host
 	k := key(base)
@@ -303,6 +310,13 @@ func (f *Fetcher) Refresh(ctx context.Context, rawURL string) (string, error) {
 	}
 	if u.Host == "" {
 		return "", errors.New("地址缺少主机名")
+	}
+	// 入口先静态判一次，跟 DNS 解析后的 IP 校验、逐跳重定向校验保持一致。
+	// 字面 IP（169.254.169.254 / fd00:ec2::254 这类云元数据）和 metadata
+	// 主机名在这里就能直接拒，不用先发请求。blockedNets 只含云元数据和链路
+	// 本地，RFC1918 不拦 —— 局域网 IP 是正当的导航目标。
+	if blockedTarget(u) {
+		return "", errors.New("这个地址不允许抓取")
 	}
 	k := key(u.Scheme + "://" + u.Host)
 	for _, ext := range []string{".ico", ".png", ".jpg", ".svg", ".webp"} {

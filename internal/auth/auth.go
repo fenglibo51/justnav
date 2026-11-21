@@ -19,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"path/filepath"
 	"strings"
@@ -170,8 +171,12 @@ func (m *Manager) load() error {
 	}
 	// 收紧既有文件的权限。save() 会 chmod 0600，但老版本可能是 0644 建出来的，
 	// 而 users.json 里存着密码哈希和会话签名密钥 —— 只要那个文件还在，权限就得
-	// 收回来。读成功之后才 chmod，失败不致命（比如卷是只读的，读得到改不了）。
-	_ = os.Chmod(m.path, 0o600)
+	// 收回来。读成功之后才 chmod，失败不致命（比如卷是只读的，读得到改不了），
+	// 但必须留痕：用户不能误以为"已经收紧了"。
+	if chErr := os.Chmod(m.path, 0o600); chErr != nil {
+		log.Printf("⚠️  收紧 %s 权限失败（里面有密码哈希和会话签名密钥）：%v —— 请手动 chmod 600",
+			m.path, chErr)
+	}
 	var d doc
 	if err := json.Unmarshal(raw, &d); err != nil {
 		return fmt.Errorf("解析 users.json: %w", err)
