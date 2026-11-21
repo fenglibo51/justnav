@@ -295,6 +295,10 @@ grep -Fq -- 'if (v.indexOf("lib:") === 0)' "$WEB" && ok "前端支持 lib:xxx（
 grep -Fq -- 'id="fIconSearch"' "$WEB" && ok "编辑弹窗有在线图标搜索框" || bad "没有在线搜索入口"
 grep -Fq -- 'func dockerHost() string' internal/config/config.go && bad "还在自动探测 socket（调 API 的能力应已搬到 discovery 旁车）" || ok "不再自动探测 Docker Socket"
 grep -Fq -- 'JUSTNAV_DISCOVERY_FILE' compose.yaml && ok "compose 用快照文件而不是 socket" || bad "compose 没配快照路径"
+grep -q 'profiles:' compose.yaml \
+  && bad "采集器还有 profile，默认不会启动" \
+  || ok "采集器默认启动（无 profile）"
+
 grep -Fq -- 'network_mode: none' compose.yaml && ok "采集器跑在无网络模式" || bad "采集器有网卡，攻击面变大"
 
 echo "== 3.20 隐藏区（没有前端的容器不进首页，可恢复）"

@@ -327,15 +327,12 @@ data/wallpaper/                  Bing 每日缓存（共享，只下一份）
 
 想让导航页自动发现 NAS 上的容器，多起一个采集器就行。
 
-### 开启
+### 开启 / 关闭
 
-```bash
-docker compose --profile discovery up -d
-```
+**默认就开。** `docker compose up -d` 会同时起主程序和采集器。
 
-### 关闭
-
-默认就是关的，什么都不用做。
+不想要：把 compose 里 `justnav-discovery` 那段注释掉，或者把主程序里的
+`JUSTNAV_DISCOVERY_FILE` 留空。
 
 ### 为什么是两个容器
 

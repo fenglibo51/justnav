@@ -1,13 +1,11 @@
 # JustNav
 #
-# 默认启动 justnav 主程序。
+#   docker compose up -d
 #
-# 想要「Docker 自动发现」（自动列出 NAS 上的容器）就多起一个采集器：
+# 默认起两个容器：主程序 + 容器采集器（自动发现 NAS 上的服务）。
 #
-#   docker compose up -d                       # 只要主程序（推荐先这样）
-#   docker compose --profile discovery up -d   # 加上容器自动发现
-#
-# 不想要自动发现 → 什么都不用做，默认就是关的。
+# 不想要自动发现，把下面 justnav-discovery 整段用 # 注释掉，
+# 或者把主程序里的 JUSTNAV_DISCOVERY_FILE 留空。
 
 services:
   justnav:
@@ -56,12 +54,13 @@ services:
   # 为什么不把 socket 直接挂给主程序：那等于把 NAS 的最高权限交出去。
   # 拆成这个独立进程后，主程序被攻破也拿不到 Docker 权限。
   #
-  # 不启用时这一段完全不会启动（profile: discovery）
+  # 不想用的话把这一段整块注释掉
   # ------------------------------------------------------------------
   justnav-discovery:
     image: justnav-discovery:local
     container_name: justnav-discovery
-    profiles: ["discovery"]
+    # 不用 profile —— 默认就跟着 up -d 一起启动。
+    # 不想要的话把这一整段注释掉即可，主程序会自动显示「发现未启用」。
     restart: unless-stopped
     network_mode: none      # 没有网卡，不提供任何网络服务
     read_only: true         # 根文件系统只读
