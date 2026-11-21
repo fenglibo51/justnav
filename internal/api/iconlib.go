@@ -6,6 +6,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"justnav/internal/svgscan"
 )
 
 // handleIconSearch 在线图标库搜索：GET /api/icons/search?q=plex&limit=60
@@ -70,8 +72,7 @@ func (s *Server) handleIconGet(w http.ResponseWriter, r *http.Request) {
 	// 这条 CSP 把它关进沙箱：就算漏过黑名单，脚本也执行不了。PNG 是位图，
 	// 没有执行能力，不需要。style-src 放开内联是为了让图标自己的样式生效。
 	if strings.HasPrefix(ct, "image/svg") {
-		w.Header().Set("Content-Security-Policy",
-			"sandbox; default-src 'none'; script-src 'none'; object-src 'none'; style-src 'unsafe-inline'")
+		w.Header().Set("Content-Security-Policy", svgscan.CSP)
 		w.Header().Set("X-Content-Type-Options", "nosniff")
 	}
 	w.Write(body)

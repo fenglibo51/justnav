@@ -1,4 +1,4 @@
-package icons
+package svgscan
 
 import "testing"
 
@@ -24,7 +24,7 @@ func TestSVGUnsafeRejectsExecutableContent(t *testing.T) {
 		{"onbegin 动画事件", `<svg><animate onbegin="alert(1)" attributeName="x"/></svg>`},
 	}
 	for _, tc := range bad {
-		if !svgUnsafe([]byte(tc.src)) {
+		if !Unsafe([]byte(tc.src)) {
 			t.Errorf("%s 应被判定为危险，却放行了:\n%s", tc.name, tc.src)
 		}
 	}
@@ -40,7 +40,7 @@ func TestSVGUnsafeRejectsExecutableContent(t *testing.T) {
 		`<svg xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink"><use xlink:href="#a"/></svg>`,
 	}
 	for _, src := range good {
-		if svgUnsafe([]byte(src)) {
+		if Unsafe([]byte(src)) {
 			t.Errorf("误杀了正常图标:\n%s", src)
 		}
 	}
@@ -51,15 +51,15 @@ func TestSVGUnsafeRejectsExecutableContent(t *testing.T) {
 
 // 超大文件直接拒，别让一张图把内存吃穿
 func TestSVGUnsafeRejectsOversize(t *testing.T) {
-	if !svgUnsafe(make([]byte, 70<<10)) {
+	if !Unsafe(make([]byte, 70<<10)) {
 		t.Error("超过 64KB 应判为危险")
 	}
 	// 正常大小的合法 SVG 不拦
-	if svgUnsafe([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>`)) {
+	if Unsafe([]byte(`<svg xmlns="http://www.w3.org/2000/svg"><path d="M0 0"/></svg>`)) {
 		t.Error("正常 SVG 被拦了")
 	}
 	// 解析不了的字节流按危险处理（GET 那边另有 len==0 的过滤）
-	if !svgUnsafe([]byte{0x00, 0x01, 0x02, 0xff}) {
+	if !Unsafe([]byte{0x00, 0x01, 0x02, 0xff}) {
 		t.Error("非 XML 的二进制应判为危险")
 	}
 }

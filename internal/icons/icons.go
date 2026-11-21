@@ -14,10 +14,8 @@
 package icons
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"net/http"
@@ -29,6 +27,8 @@ import (
 	"strings"
 	"sync"
 	"time"
+
+	"justnav/internal/svgscan"
 )
 
 const (
@@ -257,7 +257,7 @@ func (c *Client) Get(ctx context.Context, name string) ([]byte, string, error) {
 		p := filepath.Join(dir, name+"."+ext)
 		if b, err := os.ReadFile(p); err == nil && len(b) > 0 {
 			// 老版本落盘的缓存没清洗过，读到脏的删掉，走下面的网络重拉
-			if ext == "svg" && svgUnsafe(b) {
+			if ext == "svg" && svgscan.Unsafe(b) {
 				_ = os.Remove(p)
 				continue
 			}
@@ -298,7 +298,7 @@ func (c *Client) Get(ctx context.Context, name string) ([]byte, string, error) {
 			lastErr = fmt.Errorf("%s 读取失败", s.url)
 			continue
 		}
-		if s.ext == "svg" && svgUnsafe(body) {
+		if s.ext == "svg" && svgscan.Unsafe(body) {
 			lastErr = fmt.Errorf("%s 返回的 SVG 含可执行内容，已丢弃", s.url)
 			continue
 		}
@@ -309,87 +309,6 @@ func (c *Client) Get(ctx context.Context, name string) ([]byte, string, error) {
 		lastErr = fmt.Errorf("找不到图标 %s", name)
 	}
 	return nil, "", lastErr
-}
-
-// svgBadElements 是 SVG 里能挂脚本或加载外部内容的元素。
-// 图标只需要图形元素，这几个出现就直接拒。
-var svgBadElements = map[string]bool{
-	"script":           true,
-	"foreignobject":    true, // 能塞整段 HTML
-	"iframe":           true,
-	"embed":            true,
-	"object":           true,
-	"handler":          true, // SVG Tiny 的事件元素
-	"set":              true,
-	"animate":          true, // 配合 onbegin 用
-	"animatemotion":    true,
-	"animatetransform": true,
-}
-
-// svgUnsafe 判断 SVG 里有没有可执行内容。
-//
-// 为什么必须挡：图标是从第三方 CDN 下来原样返回给浏览器的，而
-// /api/icons/get 跟页面同源。谁拿到链接直接打开，SVG 就在本站源下当文档
-// 渲染 —— 里面的脚本能读 cookie、直接调写接口。
-//
-// 为什么不用字符串黑名单：`onload = "alert(1)"` 在属性名和等号之间加个空格
-// 就绕过了，`onload	=` / `onload\n=` 同理 —— XML 规范允许这些空白，解析器
-// 照样把它当 onload 属性。所以这里用 encoding/xml 真解析一遍，按 token 看
-// 元素名和属性名，跟空格/制表符/换行完全无关。
-//
-// 这仍是黑名单（不是完整消毒），只是把判定建立在解析结果而不是字面量上。
-// 真正的兜底边界是 handleIconGet 对 SVG 加的 sandbox CSP，两层一起才够。
-func svgUnsafe(b []byte) bool {
-	if len(b) > 64<<10 {
-		return true // 图标不该这么大
-	}
-	dec := xml.NewDecoder(bytes.NewReader(b))
-	// 常见 HTML 实体（&nbsp; 等）放行，别让正常图标因为实体解析失败被拒
-	dec.Entity = xml.HTMLEntity
-
-	for {
-		tok, err := dec.Token()
-		if err == io.EOF {
-			return false
-		}
-		if err != nil {
-			return true // 解析不了的一律拒，宁可回退 png
-		}
-		switch t := tok.(type) {
-		case xml.StartElement:
-			if svgBadElements[strings.ToLower(t.Name.Local)] {
-				return true
-			}
-			for _, a := range t.Attr {
-				name := strings.ToLower(a.Name.Local)
-				val := strings.ToLower(strings.TrimSpace(a.Value))
-				// 任何 on* 事件处理器，不管中间夹多少空白
-				if strings.HasPrefix(name, "on") {
-					return true
-				}
-				// 能带伪协议的引用属性
-				switch name {
-				case "href", "src", "from", "to", "values", "begin":
-					if strings.HasPrefix(val, "javascript:") ||
-						strings.HasPrefix(val, "data:") ||
-						strings.HasPrefix(val, "vbscript:") {
-						return true
-					}
-				case "style":
-					if strings.Contains(val, "url(") || strings.Contains(val, "expression") {
-						return true
-					}
-				}
-			}
-		case xml.Directive:
-			// <!DOCTYPE svg ...> 这种纯声明放行（很多正经图标有），
-			// 但内部子集（[ <!ENTITY ...> ]）一律拒 —— 那是 XXE 和实体爆破的入口
-			d := strings.ToLower(string(t))
-			if strings.Contains(d, "entity") || strings.Contains(d, "[") {
-				return true
-			}
-		}
-	}
 }
 
 func contentType(ext string) string {
