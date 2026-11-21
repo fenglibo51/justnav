@@ -90,9 +90,16 @@ type failInfo struct {
 }
 
 type Manager struct {
-	mu   sync.RWMutex
-	path string
-	d    doc
+	mu sync.RWMutex
+	// saveMu 串行化「序列化 → 写临时文件 → rename」整段。
+	//
+	// 跟 store.Store.saveMu 同一个理由：mu 是 RLock，只护住把账号表拍成
+	// JSON 那一下，写盘和 rename 都在锁外。两个并发 save() 可能先后拿到
+	// 各自的快照，却反向完成 rename —— 磁盘留下较旧的那份，丢掉刚改的
+	// 密码或刚加的账号。单文件原子 rename 只保证不出现半截 JSON。
+	saveMu sync.Mutex
+	path   string
+	d      doc
 
 	rateMu   sync.Mutex
 	failures map[string]*failInfo
@@ -227,6 +234,9 @@ func (m *Manager) migrateLegacy(path string) error {
 }
 
 func (m *Manager) save() error {
+	m.saveMu.Lock()
+	defer m.saveMu.Unlock()
+
 	m.mu.RLock()
 	raw, err := json.MarshalIndent(m.d, "", "  ")
 	m.mu.RUnlock()
