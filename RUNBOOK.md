@@ -105,7 +105,7 @@ curl -s http://127.0.0.1:8522/api/health
                                     （3）浏览器缓存了旧图，Ctrl+F5
 日志出现「壁纸抓取失败（沿用现有）」      Bing 接口不通或被限流。导航本身不受影响，
                                     修好网络后下一次 6 小时轮询会自动补上
-inbox 返回 enabled:false             没配 JUSTNAV_DOCKER_HOST。见下节
+inbox 返回 enabled:false             没配 JUSTNAV_DISCOVERY_FILE，或没起 discovery 旁车
 改了前端但页面没变                     没重新编译。go:embed 是编译期嵌入
 数据目录权限报错                       容器内 uid 与挂载目录属主不一致，chown 对齐
 ```
@@ -128,8 +128,15 @@ rm -f <data>/wallpaper/2*.jpg     # 保留 meta.json 即可，下次启动会重
 
 ## Docker 自动发现
 
-**默认就开着**，compose 里直挂宿主机 socket，`JUSTNAV_DOCKER_HOST` 指向 `/var/run/docker.sock`。
-想收紧权限可以自行加只读旁车（见上面「路 B」），再把变量改成 `tcp://docker-proxy:2375`。
+**默认关闭。** 需要的话起 justnav-discovery 旁车：
+
+```bash
+docker compose --profile discovery up -d
+```
+
+主程序这边配 `JUSTNAV_DISCOVERY_FILE=/run/justnav-discovery/containers.json`，
+它只读采集器写出来的快照，**不碰 Docker Socket**（Docker API 没有只读概念，
+直挂等于交出宿主机 root，详见 `docs/docker-socket-security.md`）。
 
 发现两种来源：
 

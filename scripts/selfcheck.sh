@@ -114,6 +114,19 @@ grep -Fq -- 'DiscoveryFile' internal/config/config.go \
 grep -Fq -- 'JUSTNAV_DISCOVERY_FILE' web/index.html compose.yaml internal/config/config.go \
   && ok "快照路径三处一致" || bad "快照环境变量名在三处不一致"
 
+# .env.example 是最容易被漏的地方 —— 用户直接复制它就照着做了
+grep -q '^JUSTNAV_DOCKER_HOST=' .env.example \
+  && bad ".env.example 还在教用户设 JUSTNAV_DOCKER_HOST（那是直连后门）" \
+  || ok ".env.example 不再提供 JUSTNAV_DOCKER_HOST"
+
+grep -q 'JUSTNAV_DISCOVERY_FILE' .env.example \
+  && ok ".env.example 有快照路径项" || bad ".env.example 缺 JUSTNAV_DISCOVERY_FILE"
+
+# README 里不能出现可复制的挂 socket 配置块（解释性文字不算：那些行前面有 # 或是 prose）
+grep -nE '^\s+-\s*/var/run/docker\.sock:/var/run/docker\.sock' README.md \
+  && bad "README 里有可直接复制的 socket 挂载行" \
+  || ok "README 里没有教人挂 socket 的配置块"
+
 [ -f cmd/justnav-discovery/main.go ] && ok "采集器源码在" || bad "缺 cmd/justnav-discovery"
 [ -f Dockerfile.discovery ] && ok "采集器 Dockerfile 在" || bad "缺 Dockerfile.discovery"
 
