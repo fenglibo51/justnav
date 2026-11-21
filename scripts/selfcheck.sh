@@ -141,7 +141,7 @@ grep -Fq -- 'network_mode: none' compose.yaml \
 
 # 主程序服务块里不能出现 socket 挂载：先切出 justnav 段再查
 # 只看真正的挂载行（- /var/run/docker.sock），注释里提到这个名字不算
-awk '/^  justnav:/{f=1} /^  discovery:/{f=0} f' compose.yaml \
+awk '/^  justnav:/{f=1} /^  justnav-discovery:/{f=0} f' compose.yaml \
   | grep -qE '^[[:space:]]+-[[:space:]]*/var/run/docker\.sock' \
   && bad "compose 的 justnav 服务仍挂载 docker.sock" \
   || ok "compose 的 justnav 服务不挂 docker.sock"

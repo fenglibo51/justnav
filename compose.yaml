@@ -1,19 +1,22 @@
-# JustNav 默认部署
+# JustNav
 #
-# 两个服务是分开的：
-#   justnav      主程序，提供 Web 界面。★ 它不挂 Docker Socket
-#   discovery    采集器，唯一持有 Socket 的进程，只把容器列表写成 JSON
+# 默认启动 justnav 主程序。
 #
-# 默认只启动 justnav。想要「待收录」（自动发现容器）才启用 discovery：
+# 想要「Docker 自动发现」（自动列出 NAS 上的容器）就多起一个采集器：
 #
-#   docker compose up -d                       # 只有主程序
-#   docker compose --profile discovery up -d   # 加上自动发现
+#   docker compose up -d                       # 只要主程序（推荐先这样）
+#   docker compose --profile discovery up -d   # 加上容器自动发现
+#
+# 不想要自动发现 → 什么都不用做，默认就是关的。
 
 services:
   justnav:
     image: justnav:local
     container_name: justnav
     restart: unless-stopped
+    # 镜像里的 ENTRYPOINT 是烤进去的旧二进制，这里改成跑 bin 挂载的实体文件，
+    # go build 后 restart 即生效
+    entrypoint: ["/app/justnav"]
     ports:
       - "8522:8522"
     environment:
@@ -30,57 +33,38 @@ services:
       JUSTNAV_PROBE_THRESHOLD: "2"
       JUSTNAV_PROBE_INSECURE: "true"
 
-      # ---- Docker 自动发现（可选）----
-      # 指向 discovery 写出来的快照文件。留空 = 未启用，界面上显示「未启用」。
-      # 超过 STALE_SEC 没更新就判定数据过期（采集器默认 15 秒一次，这里留 4 倍余量）。
+      # ---- Docker 自动发现（可选，配合下面的 justnav-discovery）----
+      # 留空 = 未启用，界面上「待收录」显示「未启用」，不是故障
       JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
       JUSTNAV_DISCOVERY_STALE_SEC: "60"
-      # 没打 nav.* 标签、但有端口映射的运行容器，也列进「待收录」
+      # 没打 nav.* 标签、但有端口映射的运行容器也列进「待收录」
       JUSTNAV_DOCKER_SCAN_ALL: "true"
 
-      # 内网地址:给「待收录」拼候选地址用(走反代时不能拿域名拼)
-      # ⚠️ 改成你自己 NAS / 主机的内网地址
-      JUSTNAV_INTERNAL_HOST: "192.168.1.10"
-
-      # 登录认证
+      JUSTNAV_INTERNAL_HOST: "192.168.1.10"   # 改成你自己的内网地址
       JUSTNAV_AUTH: "true"
       JUSTNAV_USER: admin
-      # 可选。只在「一个账号都没有」的首次启动时用于创建管理员:
-      #   留空  → 默认 admin / admin(登录后请立刻在设置里改掉)
-      #   有值  → 用它作为初始密码
-      # 已有账号后这个变量不再生效,改密码走「设置 → 改密」。
       JUSTNAV_PASSWORD: "${JUSTNAV_PASSWORD:-}"
-      # 走 HTTPS 反代时改成 true(cookie 加 Secure)
-      JUSTNAV_COOKIE_SECURE: "false"
+      JUSTNAV_COOKIE_SECURE: "false"          # 走 HTTPS 反代时改 true
     volumes:
       - ./data:/data:rw
-      # 只读挂快照。主程序写不了它，只有 discovery 能写。
       - justnav_discovery:/run/justnav-discovery:ro
-    # ⚠️ 这里【绝对不要】加 /var/run/docker.sock —— 那等于把宿主机 root
-    #    交给一个对外的 Web 应用。Docker API 没有只读概念，读列表和创建
-    #    特权容器走同一个 socket，`:ro` 挡不住。
+    # ★ 主程序不挂 /var/run/docker.sock
 
   # ------------------------------------------------------------------
-  # 采集器：唯一持有 Docker Socket 的进程
+  # 采集器：负责读 Docker 的容器列表
   #
-  # 它被刻意做成「什么都干不了」：
-  #   没有 HTTP 服务（network_mode: none，压根没网卡）
-  #   没有 shell、没有 curl、没有 docker CLI（scratch 镜像里就一个二进制）
-  #   根文件系统只读，所有 capabilities 丢掉，禁止提权
-  #   API 路径写死成 GET /containers/json，不接受任何外部输入
-  #   只输出白名单字段（Env / Mounts / HostConfig 一个字节都不写）
+  # 为什么不把 socket 直接挂给主程序：那等于把 NAS 的最高权限交出去。
+  # 拆成这个独立进程后，主程序被攻破也拿不到 Docker 权限。
   #
-  # ⚠️ 但它【仍然持有完整的 Docker 权限】—— 这是 Docker API 的固有特性，
-  #    不是本项目的实现问题。这个方案缩小的是"被利用后能干什么"，
-  #    不是"权限本身"。详见 docs/docker-socket-security.md
+  # 不启用时这一段完全不会启动（profile: discovery）
   # ------------------------------------------------------------------
-  discovery:
+  justnav-discovery:
     image: justnav-discovery:local
     container_name: justnav-discovery
     profiles: ["discovery"]
     restart: unless-stopped
-    network_mode: none
-    read_only: true
+    network_mode: none      # 没有网卡，不提供任何网络服务
+    read_only: true         # 根文件系统只读
     cap_drop: [ALL]
     security_opt:
       - no-new-privileges:true
@@ -89,12 +73,8 @@ services:
       JUSTNAV_DISCOVERY_OUT: /out/containers.json
       JUSTNAV_DISCOVERY_INTERVAL_SEC: "15"
     volumes:
-      # :ro 只限制「文件能不能被写」，不限制 Docker API 能干什么。
-      # 加它是为了防止采集器意外破坏 socket 文件本身。
       - /var/run/docker.sock:/var/run/docker.sock:ro
-      # 只有这个服务对共享卷有写权限
       - justnav_discovery:/out
-    # 不设 ports、不设 expose —— 这个进程不提供任何网络服务
 
 volumes:
   justnav_discovery:
