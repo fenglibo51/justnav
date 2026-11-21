@@ -166,6 +166,11 @@ html[data-wall="custom"] .card-meta{color:rgba(16,20,32,.80)}
 .mark svg{width:34px;height:34px;display:block;border-radius:11px}
 .brand-t{font-size:16px;font-weight:650;letter-spacing:.2px}
 .brand-s{font-size:11px;color:var(--faint);margin-top:1px}
+/* 品牌字标：全小写 just + nav，后半 nav 用品牌珊瑚橙（不是纯色）。
+   just 跟主题前景色走 —— glass / paper 都是浅底，壁纸模式下侧栏用的是
+   白色 84% 的毛玻璃（--glass-2），同样是浅底，所以深色字标一直成立。 */
+.wm-just{color:var(--ink)}
+.wm-nav{color:#ED6D54}
 
 .searchbtn{
   display:flex;align-items:center;gap:9px;width:100%;cursor:text;
@@ -2500,7 +2505,7 @@ html:not([data-wall="none"]) .dlg-in:focus{
     <div class="brand">
       <div class="mark"><svg viewBox="0 0 128 128" aria-hidden="true"><rect x="1" y="1" width="126" height="126" rx="29" fill="#F7F4EF" stroke="#E4DDD2" stroke-width="2"/><rect x="27" y="27" width="34" height="34" rx="9" fill="#25333A"/><rect x="27" y="67" width="34" height="34" rx="9" fill="#25333A"/><rect x="67" y="67" width="34" height="34" rx="9" fill="#25333A"/><path d="M76 54L102 28M84 28H102V46" fill="none" stroke="#ED6D54" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div class="brand-text">
-        <div class="brand-t">JustNav</div>
+        <div class="brand-t"><span class="wm-just">just</span><span class="wm-nav">nav</span></div>
         <div class="brand-s">就只是个导航</div>
       </div>
       <button class="collapse-btn" id="btnCollapse" title="收起 / 展开侧边栏" aria-label="收起侧边栏">
@@ -2839,7 +2844,7 @@ html:not([data-wall="none"]) .dlg-in:focus{
     <div class="login-brand">
       <div class="mark"><svg viewBox="0 0 128 128" aria-hidden="true"><rect x="1" y="1" width="126" height="126" rx="29" fill="#F7F4EF" stroke="#E4DDD2" stroke-width="2"/><rect x="27" y="27" width="34" height="34" rx="9" fill="#25333A"/><rect x="27" y="67" width="34" height="34" rx="9" fill="#25333A"/><rect x="67" y="67" width="34" height="34" rx="9" fill="#25333A"/><path d="M76 54L102 28M84 28H102V46" fill="none" stroke="#ED6D54" stroke-width="10" stroke-linecap="round" stroke-linejoin="round"/></svg></div>
       <div>
-        <div class="t">JustNav</div>
+        <div class="t"><span class="wm-just">just</span><span class="wm-nav">nav</span></div>
         <div class="s">就只是个导航</div>
       </div>
     </div>
