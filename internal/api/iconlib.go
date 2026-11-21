@@ -62,5 +62,17 @@ func (s *Server) handleIconGet(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Content-Type", ct)
 	// 图标基本不变：缓存一周，省得每次开页面都来回打
 	w.Header().Set("Cache-Control", "public, max-age=604800")
+	// SVG 是唯一会被浏览器当「文档」渲染的图标格式：谁把 /api/icons/get
+	// 的链接直接打开，浏览器就在 JustNav 自己的源下渲染它 —— 里面的脚本
+	// 能读 cookie、能调写接口。icons.svgUnsafe 已经按 XML 解析结果拦了
+	// script / on* 事件 / 伪协议，但那是黑名单，不能当唯一边界。
+	//
+	// 这条 CSP 把它关进沙箱：就算漏过黑名单，脚本也执行不了。PNG 是位图，
+	// 没有执行能力，不需要。style-src 放开内联是为了让图标自己的样式生效。
+	if strings.HasPrefix(ct, "image/svg") {
+		w.Header().Set("Content-Security-Policy",
+			"sandbox; default-src 'none'; script-src 'none'; object-src 'none'; style-src 'unsafe-inline'")
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+	}
 	w.Write(body)
 }
