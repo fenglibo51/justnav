@@ -228,6 +228,9 @@ JUSTNAV_AUTH                  true             是否启用登录认证
 JUSTNAV_USER                  admin            账号
 JUSTNAV_PASSWORD              （空=admin）      初始密码，只在首次创建管理员时生效
 JUSTNAV_COOKIE_SECURE         false            走 HTTPS 反代时设 true
+JUSTNAV_ALLOWED_ORIGINS       （空）            CSRF 白名单，逗号分隔写完整 origin
+                                                反代换了域名/端口、Origin 跟 Host 对不上时用
+                                                例：https://nav.example.com,https://nav.example.com:8443
 JUSTNAV_INTERNAL_HOST         （空）            内网 IP/主机名，如 192.168.1.10
                                                 「待收录」拼候选地址用它，走反代时必填
 ```

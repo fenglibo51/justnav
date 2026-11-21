@@ -51,9 +51,9 @@ go vet + go test + 编译
 ```
 位置        /volume1/docker/justnav/          compose.yaml + data/
 镜像        justnav:local（8.1MB，scratch）
-容器        justnav                    0.0.0.0:8522->8522（挂了 /var/run/docker.sock）
+容器        justnav                    0.0.0.0:8522->8522（不挂 docker.sock）
 访问        http://<你的NAS>:8522
-内存        justnav ≈16MiB（socket 直挂，无旁车）
+内存        justnav ≈16MiB（主程序不挂 socket；自动发现走独立旁车）
 ```
 
 **每次改完前端必须重新构建镜像**（前端是 go:embed 编进去的）：
@@ -113,12 +113,20 @@ inbox 返回 enabled:false             没配 JUSTNAV_DISCOVERY_FILE，或没起
 ## 数据与备份
 
 ```
-<data>/nav.json                  导航条目 + 设置（唯一的业务数据，最重要）
+<data>/users.json                账号：密码哈希 + 会话签名密钥（0600，最敏感）
+<data>/users/<uid>/nav.json      每个账号各自的导航条目 + 设置（真正的业务数据）
+<data>/nav.json                  关闭登录时（JUSTNAV_AUTH=false）的数据；迁到账号后就没了
 <data>/wallpaper/<yyyymmdd>.jpg  壁纸缓存（可随时删，会自动重抓）
 <data>/wallpaper/meta.json       当前壁纸元信息
 ```
 
-**备份只需要 `nav.json`。** 壁纸是缓存，删了自动重下。
+**只备份 `nav.json` 是不够的。** 多账号以后业务数据在 `users/<uid>/nav.json`，
+账号本身在 `users.json`（丢了就得重建全部账号）。稳妥做法是整个 `data/` 目录
+一起拷，反正壁纸占比大不小、清掉也不影响。真要省空间就排掉并重建壁纸：
+
+```bash
+tar czf justnav-data-$(date +%F).tgz --exclude='data/wallpaper/2*.jpg' data/
+```
 
 清理壁纸缓存（不想等定时清理时）：
 
@@ -128,11 +136,14 @@ rm -f <data>/wallpaper/2*.jpg     # 保留 meta.json 即可，下次启动会重
 
 ## Docker 自动发现
 
-**默认关闭。** 需要的话起 justnav-discovery 旁车：
+**默认关闭。** 需要的话先编辑 `compose.yaml`：把 `justnav-discovery` 整段
+和主程序里的 `JUSTNAV_DISCOVERY_FILE` 前面的 `#` 删掉，然后：
 
 ```bash
-docker compose --profile discovery up -d
+docker compose up -d
 ```
+
+（没有 `--profile` —— 这个仓库里没有定义 profile，discovery 是靠注释开关的。）
 
 主程序这边配 `JUSTNAV_DISCOVERY_FILE=/run/justnav-discovery/containers.json`，
 它只读采集器写出来的快照，**不碰 Docker Socket**（Docker API 没有只读概念，
