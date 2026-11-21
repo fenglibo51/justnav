@@ -13,18 +13,33 @@ import (
 	"sync"
 )
 
+// LocalUserID 是关闭登录（JUSTNAV_AUTH=false）时使用的「本机」用户。
+//
+// 为什么需要它：关掉登录以后没人往请求里注入用户，而所有业务接口都要按
+// 用户找数据，结果每个接口都 401，整个页面用不了。给一个固定身份，
+// 数据落在 data/nav.json（单用户时代的位置），升级/降级都不用搬数据。
+const LocalUserID = "__local__"
+
 type Registry struct {
-	root string
-	mu   sync.Mutex
-	m    map[string]*Store
+	dataRoot string
+	root     string
+	mu       sync.Mutex
+	m        map[string]*Store
 }
 
 func NewRegistry(dataRoot string) *Registry {
-	return &Registry{root: filepath.Join(dataRoot, "users"), m: map[string]*Store{}}
+	return &Registry{
+		dataRoot: dataRoot,
+		root:     filepath.Join(dataRoot, "users"),
+		m:        map[string]*Store{},
+	}
 }
 
-// Dir 返回某用户的数据目录。
+// Dir 返回某用户的数据目录。本机用户直接用 data 根目录。
 func (r *Registry) Dir(userID string) string {
+	if userID == LocalUserID {
+		return r.dataRoot
+	}
 	return filepath.Join(r.root, userID)
 }
 
@@ -85,10 +100,9 @@ func (r *Registry) MigrateLegacy(dataRoot, adminID string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(dst, raw, 0o644); err != nil {
+	if err := os.WriteFile(dst, raw, 0o600); err != nil {
 		return false, err
 	}
-	_ = os.Chmod(dst, 0o644)
 	// 旧文件改名留档，避免下次重复迁移
 	_ = os.Rename(src, src+".migrated")
 	return true, nil
@@ -111,7 +125,7 @@ func (r *Registry) MigrateLegacyWallpaper(dataRoot, adminID string) (bool, error
 	if err != nil {
 		return false, err
 	}
-	if err := os.WriteFile(dst, raw, 0o644); err != nil {
+	if err := os.WriteFile(dst, raw, 0o600); err != nil {
 		return false, err
 	}
 	_ = os.Remove(src)

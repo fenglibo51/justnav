@@ -798,7 +798,12 @@ var publicPaths = map[string]bool{
 
 func (s *Server) authGate(next http.Handler) http.Handler {
 	if s.Auth == nil || !s.Cfg.AuthEnabled {
-		return next
+		// 关掉登录 = 单机自用。这里必须注入一个身份，否则所有业务接口
+		// 都拿不到用户、全部 401，页面直接不可用（P2-9）。
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			u := auth.User{ID: store.LocalUserID, Name: "本机", Role: auth.RoleAdmin}
+			next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), ctxUser, u)))
+		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		if publicPaths[r.URL.Path] {

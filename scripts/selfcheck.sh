@@ -130,6 +130,12 @@ grep -Fq -- 'CheckRedirect: func' internal/favicon/favicon.go && ok "重定向�
 # 内网必须放行 —— 封了等于 NAS 服务图标全抓不到
 grep -Fq -- '192.168.1.10:8096' internal/favicon/ssrf_test.go && ok "单测覆盖内网放行场景" || bad "没测内网是否被误封"
 
+# ---------- 关登录模式（P2-9：曾经所有业务接口 401）----------
+grep -Fq -- 'LocalUserID' internal/store/registry.go && ok "单机模式有固定身份" || bad "关登录后没人注入用户，接口全 401"
+grep -Fq -- 'store.LocalUserID' internal/api/api.go && ok "authGate 关认证时注入本机用户" || bad "authGate 关认证时直接放行，业务接口拿不到用户"
+grep -Fq -- 'userID == LocalUserID' internal/store/registry.go && ok "本机用户落在 data 根目录" || bad "本机用户会造 users/__local__ 子目录"
+grep -A3 -- 'func (r \*Registry) Dir' internal/store/registry.go | grep -Fq 'dataRoot' && ok "Dir 对本机用户返回根目录" || bad "Dir 没处理本机用户"
+
 # ---------- 正式 Compose 必须能直接跑 ----------
 grep -Fq -- 'entrypoint: ["/app/justnav"]' compose.yaml \
   && bad "正式 compose 还在覆盖 entrypoint（镜像里没这个路径）" || ok "正式 compose 不覆盖 entrypoint"
