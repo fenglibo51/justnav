@@ -28,10 +28,10 @@ services:
     container_name: justnav-dev
     restart: unless-stopped
     ports:
-      - "8522:8522"
+      - "8523:8523"
     environment:
       TZ: Asia/Shanghai
-      JUSTNAV_PORT: "8522"
+      JUSTNAV_PORT: "8523"
       JUSTNAV_DATA_DIR: /data
       JUSTNAV_SITE_NAME: JustNav
       JUSTNAV_PROBE: "true"
