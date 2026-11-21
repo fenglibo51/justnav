@@ -164,19 +164,20 @@ services:
 
 # ---- 容器自动发现（默认关闭）----
 # 想用的话：把下面这段的 # 去掉，同时去掉上面两行的注释
+# （完整可用的版本见仓库里的 compose.yaml，这里的示例只做说明用）
 #
-# justnav-discovery:
-#   image: ghcr.io/fenglibo51/justnav-discovery:latest
-#   container_name: justnav-discovery
-#   restart: unless-stopped
-#   network_mode: none
-#   read_only: true
-#   cap_drop: [ALL]
-#   security_opt:
-#     - no-new-privileges:true
-#   volumes:
-#     - /var/run/docker.sock:/var/run/docker.sock:ro
-#     - justnav_discovery:/out
+#   justnav-discovery:
+#     image: ghcr.io/fenglibo51/justnav-discovery:latest
+#     container_name: justnav-discovery
+#     restart: unless-stopped
+#     network_mode: none
+#     read_only: true
+#     cap_drop: [ALL]
+#     security_opt:
+#       - no-new-privileges:true
+#     volumes:
+#       - /var/run/docker.sock:/var/run/docker.sock:ro
+#       - justnav_discovery:/out
 #
 # volumes:
 #   justnav_discovery:
