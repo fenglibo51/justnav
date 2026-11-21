@@ -1,0 +1,37 @@
+# 构建上下文排除项。
+#
+# .gitignore 不能代替这个 —— 没 exclude 的话 docker build 会把整个目录打包发给 daemon，
+# 包括 .git、本地编译产物、以及 data/ 里可能存在的真实数据。
+
+.git
+.gitignore
+.github
+
+# 本地数据：真实导航条目、壁纸缓存、账号文件
+data
+data-dev
+*.bak-*
+
+# 本地编译产物
+bin
+dist
+justnav
+justnav-discovery
+
+# 环境变量与凭据（保留 example）
+.env
+.env.*
+!.env.example
+
+# 编辑器与临时文件
+.vscode
+.idea
+*.swp
+*~
+*.tmp
+*.log
+
+# 文档与截图：镜像里用不到，但源码构建会影响 COPY . . 的层缓存
+docs
+*.md
+!README.md

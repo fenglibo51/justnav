@@ -1,20 +1,20 @@
-# JustNav
+# JustNav —— 正式部署
 #
 #   docker compose up -d
 #
 # 默认起两个容器：主程序 + 容器采集器（自动发现 NAS 上的服务）。
 #
-# 不想要自动发现，把下面 justnav-discovery 整段用 # 注释掉，
+# 不想要自动发现：把下面 justnav-discovery 整段注释掉，
 # 或者把主程序里的 JUSTNAV_DISCOVERY_FILE 留空。
+#
+# 本地开发（要改代码）用 compose.dev.yaml，别用这个。
 
 services:
   justnav:
-    image: justnav:local
+    # 想固定版本回滚就把 latest 换成具体版本，比如 :1.2.0
+    image: ghcr.io/fenglibo51/justnav:latest
     container_name: justnav
     restart: unless-stopped
-    # 镜像里的 ENTRYPOINT 是烤进去的旧二进制，这里改成跑 bin 挂载的实体文件，
-    # go build 后 restart 即生效
-    entrypoint: ["/app/justnav"]
     ports:
       - "8522:8522"
     environment:
@@ -31,36 +31,39 @@ services:
       JUSTNAV_PROBE_THRESHOLD: "2"
       JUSTNAV_PROBE_INSECURE: "true"
 
-      # ---- Docker 自动发现（可选，配合下面的 justnav-discovery）----
+      # Docker 自动发现：读采集器写出来的快照
       # 留空 = 未启用，界面上「待收录」显示「未启用」，不是故障
       JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
       JUSTNAV_DISCOVERY_STALE_SEC: "60"
       # 没打 nav.* 标签、但有端口映射的运行容器也列进「待收录」
       JUSTNAV_DOCKER_SCAN_ALL: "true"
 
-      JUSTNAV_INTERNAL_HOST: "192.168.1.10"   # 改成你自己的内网地址
+      # 改成你自己 NAS / 主机的内网地址
+      JUSTNAV_INTERNAL_HOST: "192.168.1.10"
+
       JUSTNAV_AUTH: "true"
       JUSTNAV_USER: admin
+      # 只在还没有任何账号时生效，之后改密码走界面
       JUSTNAV_PASSWORD: "${JUSTNAV_PASSWORD:-}"
-      JUSTNAV_COOKIE_SECURE: "false"          # 走 HTTPS 反代时改 true
+      # 走 HTTPS 反代时改成 true
+      JUSTNAV_COOKIE_SECURE: "false"
     volumes:
       - ./data:/data:rw
+      # 只读挂快照，主程序写不了
       - justnav_discovery:/run/justnav-discovery:ro
     # ★ 主程序不挂 /var/run/docker.sock
 
   # ------------------------------------------------------------------
   # 采集器：负责读 Docker 的容器列表
   #
-  # 为什么不把 socket 直接挂给主程序：那等于把 NAS 的最高权限交出去。
-  # 拆成这个独立进程后，主程序被攻破也拿不到 Docker 权限。
+  # ⚠️ 这个容器会挂载 Docker Socket，等于持有宿主机最高权限。
+  #    拆成独立进程只是为了让主程序拿不到它，不是消灭这个权限。
   #
-  # 不想用的话把这一段整块注释掉
+  # 不想要就把这一段整块注释掉。
   # ------------------------------------------------------------------
   justnav-discovery:
-    image: justnav-discovery:local
+    image: ghcr.io/fenglibo51/justnav-discovery:latest
     container_name: justnav-discovery
-    # 不用 profile —— 默认就跟着 up -d 一起启动。
-    # 不想要的话把这一整段注释掉即可，主程序会自动显示「发现未启用」。
     restart: unless-stopped
     network_mode: none      # 没有网卡，不提供任何网络服务
     read_only: true         # 根文件系统只读

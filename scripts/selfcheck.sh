@@ -88,6 +88,35 @@ grep -Fq -- 'v <= -60 || v >= 60 {' internal/weather/weather.go && ok "cnTemp �
 grep -Fq -- 'r === 0 && v < 0 ? "-0"' "$WEB" && ok "零下小数值显示 -0° 而不是 0°" || bad "Math.round(-0.3) 又会显示成 0°"
 grep -Fq -- 'w.max > w.min' "$WEB" && ok "高低温数据不全时不显示（不再出现 -0.3° / -0.3°）" || bad "max==min 时还会显示没意义的高低温"
 grep -Fq -- 'twcAPIKey' internal/weather/twc.go && ok "天气首选 The Weather Channel（苹果天气同源，自带真实当日高低）" || bad "TWC 源没了"
+
+# ---------- XSS：所有拼进 innerHTML 的用户数据必须过 esc() ----------
+grep -Fq -- 'function esc(v)' "$WEB" && ok "有统一转义函数 esc()" || bad "缺 esc()"
+grep -Fq -- 'var dlEsc = esc' "$WEB" && ok "老名字 dlEsc 复用了 esc（不留两套转义）" || bad "dlEsc 和 esc 是两份实现"
+
+grep -Fq -- 'esc(it.n)' "$WEB" && ok "卡片名称已转义" || bad "卡片名称没转义（XSS）"
+grep -Fq -- 'esc(dText)' "$WEB" && ok "卡片描述已转义" || bad "卡片描述没转义（XSS）"
+grep -Fq -- 'esc(it.tag)' "$WEB" && ok "卡片标签已转义" || bad "卡片标签没转义（XSS）"
+grep -Fq -- 'esc(u.name)' "$WEB" && ok "账号名已转义（用户列表）" || bad "账号名没转义（普通账号可改名 → 管理员页面 XSS）"
+grep -Fq -- 'esc(x.name)' "$WEB" && ok "容器候选名已转义" || bad "Docker 标签名没转义（XSS）"
+grep -Fq -- 'esc(g.g)' "$WEB" && ok "分组名已转义" || bad "分组名没转义（XSS）"
+
+grep -Fq -- 'nameEl.innerHTML = "当前账号 <b>"' "$WEB" \
+  && bad "账号名还在拼 innerHTML" || ok "账号名不再拼 innerHTML（改用 textContent）"
+
+# ---------- URL 方案校验：前后端各一道 ----------
+grep -Fq -- 'function safeUrl(' "$WEB" && ok "前端有 URL 方案校验" || bad "前端没挡 javascript:"
+grep -Fq -- 'func sanitizeURL(' internal/store/store.go && ok "后端有 URL 方案校验" || bad "后端没挡 javascript:（直接打 API 可绕过前端）"
+grep -Fq -- 'HasPrefix(s, "//")' internal/store/store.go && ok "后端挡住协议相对地址 //host" || bad "//host 能绕过「站内路径」规则"
+
+# ---------- 正式 Compose 必须能直接跑 ----------
+grep -Fq -- 'entrypoint: ["/app/justnav"]' compose.yaml \
+  && bad "正式 compose 还在覆盖 entrypoint（镜像里没这个路径）" || ok "正式 compose 不覆盖 entrypoint"
+grep -q 'build:' compose.yaml && bad "正式 compose 里不该有 build" || ok "正式 compose 用发布镜像，不本地构建"
+grep -Fq -- 'ghcr.io/fenglibo51/justnav:' compose.yaml && ok "正式 compose 用 GHCR 镜像" || bad "正式 compose 没指向 GHCR"
+[ -f compose.dev.yaml ] && ok "有独立的开发 compose" || bad "开发/正式混在一个文件里"
+[ -f .dockerignore ] && ok "有 .dockerignore" || bad "缺 .dockerignore（构建上下文会带上 .git 和 data）"
+grep -q '^\.git$' .dockerignore && ok ".dockerignore 排除了 .git" || bad ".dockerignore 没排除 .git"
+grep -q '^data$' .dockerignore && ok ".dockerignore 排除了 data" || bad ".dockerignore 没排除 data"
 grep -Fq -- 'nowTWC, errTWC' internal/weather/weather.go && ok "TWC 排在取数链第一位" || bad "TWC 没接进 fetch"
 grep -Fq -- 'sameDay := v.at.Year()' internal/weather/weather.go && ok "天气缓存跨天自动失效（高低温不会拿昨天的）" || bad "跨天没判断，高低温可能沿用昨天"
 grep -Fq -- 'CK_WX_PERIOD = 60 * 60 * 1000' "$WEB" && ok "天气 1 小时拉一次（后端缓存同周期，对齐）" || bad "天气轮询周期不对"

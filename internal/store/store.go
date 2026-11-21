@@ -249,7 +249,53 @@ func (s *Store) List() []Item {
 // 没有 nav.group 标签，group 是空串，收录后界面上什么都没出现。
 const DefaultGroup = "未分组"
 
+// sanitizeURL 只放行 http/https，以及站内相对路径。
+//
+// 为什么必须在后端做：导航地址可以由用户手填、也可以由 Docker 的 nav.url 标签提供。
+// 前端虽然也会挡，但前端校验永远可以被绕过（直接打 API），所以后端必须自己判一道。
+// 典型攻击是 javascript: 开头 —— 点一下卡片就在当前页面执行脚本。
+//
+// 返回空串表示「这个地址不能用」，调用方决定是丢弃整条还是只清空这个字段。
+func sanitizeURL(u string) string {
+	s := strings.TrimSpace(u)
+	if s == "" {
+		return ""
+	}
+	// 先去掉所有控制字符和空白再判协议，防 "java\nscript:" 和 " javascript:" 这类绕过
+	probe := strings.Map(func(r rune) rune {
+		if r <= 0x20 || r == 0x7f {
+			return -1
+		}
+		return r
+	}, s)
+	low := strings.ToLower(probe)
+	if strings.HasPrefix(low, "http://") || strings.HasPrefix(low, "https://") {
+		return s
+	}
+	// 站内相对路径 / 锚点 / 查询串也允许。
+	// ★ 但 "//host/x" 要挡住 —— 浏览器会把它当成协议相对地址解析成 https://host/x，
+	//   等于绕过了「只允许站内路径」这条规则。站内路径必须是单个斜杠开头。
+	if strings.HasPrefix(s, "//") {
+		return ""
+	}
+	if strings.HasPrefix(s, "/") || strings.HasPrefix(s, "#") || strings.HasPrefix(s, "?") {
+		return s
+	}
+	return ""
+}
+
+// sanitizeItem 清掉不能用的地址。
+//
+// 注意这里【不强制】Internal 非空 —— 单条编辑允许先建条目后补地址，
+// 原来就是这个行为。要求「必须有可用地址」是 BulkUpsert（批量导入）的规则，
+// 由调用方自己判。
+func sanitizeItem(it *Item) {
+	it.Internal = sanitizeURL(it.Internal)
+	it.External = sanitizeURL(it.External)
+}
+
 func (s *Store) Upsert(it Item) error {
+	sanitizeItem(&it)
 	if it.Group == "" {
 		it.Group = DefaultGroup
 	}
@@ -590,8 +636,9 @@ func (s *Store) BulkUpsert(items []Item) (int, int, error) {
 	added, updated := 0, 0
 
 	for _, it := range items {
+		sanitizeItem(&it)
 		if it.Name == "" || it.Internal == "" {
-			continue // 缺关键字段的直接跳过，不写半条
+			continue // 缺关键字段或地址不合法（被清成空），直接跳过，不写半条
 		}
 		if it.Group == "" {
 			it.Group = DefaultGroup

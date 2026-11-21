@@ -3655,24 +3655,29 @@ html:not([data-wall="none"]) .dlg-in:focus{
     var showStat = (it.source === "docker");
 
     var dText = autoDesc(it);
+    // 名称/描述/标签都来自用户输入（手动填的，或 Docker 的 nav.* 标签），
+    // 全部过 esc() 再拼 —— 五个字符都转，包括引号（属性值里能逃出去）
     var descLine = (size === "normal" && dText)
-      ? '<div class="card-desc" title="' + dText + '">' + dText + '</div>'
+      ? '<div class="card-desc" title="' + esc(dText) + '">' + esc(dText) + '</div>'
       : '';
 
     var statHTML = showStat
-      ? '<span class="stat" data-off="' + st.code + '" title="' + (st.tip || st.text) +
-        '" aria-label="' + st.text + '"><i></i><span>' + st.text + '</span></span>'
+      ? '<span class="stat" data-off="' + esc(st.code) + '" title="' + esc(st.tip || st.text) +
+        '" aria-label="' + esc(st.text) + '"><i></i><span>' + esc(st.text) + '</span></span>'
       : '';
 
-    return '<div class="card" role="button" tabindex="0" data-id="' + (it.id || "") +
-      '" data-href="' + href + '" data-n="' + it.n + '" data-off="' + st.code + '"' +
-      ' data-size="' + size + '" data-fav="' + faviconAttr(it) + '"' +
-      ' data-custom-icon="' + (it.customIcon || "") + '">' +
-      '<div class="card-top"><div class="ico no-img" data-h="' + it.h + '">' + svg(it.ic) + '</div>' +
-      '<div class="stw"><div class="card-name">' + it.n + '</div>' +
+    // data-href 会被前端拿去 location.href 打开，必须挡住 javascript: 之类
+    var safeHref = safeUrl(href);
+
+    return '<div class="card" role="button" tabindex="0" data-id="' + esc(it.id || "") +
+      '" data-href="' + esc(safeHref) + '" data-n="' + esc(it.n) + '" data-off="' + esc(st.code) + '"' +
+      ' data-size="' + esc(size) + '" data-fav="' + esc(faviconAttr(it)) + '"' +
+      ' data-custom-icon="' + esc(it.customIcon || "") + '">' +
+      '<div class="card-top"><div class="ico no-img" data-h="' + esc(it.h) + '">' + svg(it.ic) + '</div>' +
+      '<div class="stw"><div class="card-name">' + esc(it.n) + '</div>' +
       descLine + '</div></div>' +
       '<div class="card-bot">' + statHTML +
-      (size === "normal" && it.tag ? '<span class="tag">' + it.tag + '</span>' : '') + '</div>' +
+      (size === "normal" && it.tag ? '<span class="tag">' + esc(it.tag) + '</span>' : '') + '</div>' +
       '</div>';
   }
 
@@ -4010,10 +4015,35 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
   ];
   var DL = { stats: [], timer: 0, editingId: "" };
 
-  function dlEsc(v) {
+  /* ---------- 输出转义 ----------
+     任何拼进 innerHTML 的用户数据都必须过这里。
+     五个字符全转：漏掉引号就能从属性里逃出去（data-name="' + u.name + '"），
+     漏掉 & 会双重解码。
+     注意这是【渲染边界】的处理，不是禁止用户输入这些字符 ——
+     中文名、标点、表情照常可以打，只是不会被当成标签解析。 */
+  function esc(v) {
     return String(v == null ? "" : v)
       .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;")
       .replace(/"/g, "&quot;").replace(/'/g, "&#39;");
+  }
+  // 老名字，下载器那部分一直在用，保留别名免得改一大堆
+  var dlEsc = esc;
+
+  /* 链接只允许 http / https。
+     javascript: / data: / vbscript: 这类会被当成 script 执行，
+     而导航地址是可以由用户和 Docker 标签填的，必须挡住。
+     返回空串表示「这个地址不能用」，调用方自己决定要不要显示。 */
+  function safeUrl(u) {
+    var s = String(u == null ? "" : u).trim();
+    if (!s) return "";
+    // 去掉所有控制字符和空白再判断，防 "java\nscript:" 这种绕过
+    var probe = s.replace(/[\u0000-\u0020\u007f]/g, "").toLowerCase();
+    if (probe.indexOf("http://") === 0 || probe.indexOf("https://") === 0) return s;
+    // 站内相对路径也允许（/assets/x.png、#group），但 "//host/x" 要挡 ——
+    // 浏览器会把它当协议相对地址解析成 https://host/x
+    if (s.indexOf("//") === 0) return "";
+    if (s.charAt(0) === "/" || s.charAt(0) === "#" || s.charAt(0) === "?") return s;
+    return "";
   }
 
   function fmtSpeed(bps) {
@@ -5083,11 +5113,12 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     }
     el.innerHTML = SUGG.map(function (x, i) {
       var url = inboxUrlFor(x);
+      // x.name 来自容器名或 nav.name 标签，url 来自 nav.url 标签 —— 都是外部输入
       return '<div class="disc"><div class="ico" data-h="2">' + svg("box") + '</div>' +
-        '<div style="min-width:0;flex:1"><div class="t">' + x.name +
-        '<span class="src" data-src="' + (x.source || "port") + '">' +
+        '<div style="min-width:0;flex:1"><div class="t">' + esc(x.name) +
+        '<span class="src" data-src="' + esc(x.source || "port") + '">' +
         (x.source === "label" ? "有标签" : "端口") + '</span></div>' +
-        '<div class="s">' + (url || "无地址") + '</div></div>' +
+        '<div class="s">' + esc(url || "无地址") + '</div></div>' +
         '<div class="disc-acts">' +
         '<button class="addbtn" data-i="' + i + '">收录</button>' +
         '<button class="hidebtn" data-i="' + i + '" title="没有前端的容器（数据库/worker/一次性任务）收进隐藏区，不占首页位置">隐藏</button>' +
@@ -5605,7 +5636,11 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       usersBtn.style.display = "none";
       return;
     }
-    nameEl.innerHTML = "当前账号 <b>" + ME.name + "</b>";
+    // 账号名由用户自己填，用 textContent + 单独建 <b>，不拼 HTML
+    nameEl.textContent = "当前账号 ";
+    var bEl = document.createElement("b");
+    bEl.textContent = ME.name;
+    nameEl.appendChild(bEl);
     var isAdmin = ME.role === "admin";
     roleEl.style.display = isAdmin ? "" : "none";
     usersBtn.style.display = isAdmin ? "" : "none";
@@ -5674,13 +5709,15 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     var el = document.getElementById("usrList");
     el.innerHTML = users.map(function (u) {
       var isMe = ME && u.id === ME.id;
-      return '<div class="usr-row"><span class="nm">' + u.name +
+      // u.name 是账号名，普通账号能自己改 —— 拼进 innerHTML 和 data-name 属性都要转义，
+      // 否则改个名字就能让管理员的用户列表执行脚本
+      return '<div class="usr-row"><span class="nm">' + esc(u.name) +
         (isMe ? '（我）' : '') + '</span>' +
         '<span class="tag ' + (u.role === "admin" ? "admin" : "") + '">' +
         (u.role === "admin" ? "管理员" : "普通") + '</span>' +
         '<span class="acts">' +
-        '<button data-act="pwd" data-id="' + u.id + '" data-name="' + u.name + '">重置密码</button>' +
-        (isMe ? '' : '<button class="del" data-act="del" data-id="' + u.id + '" data-name="' + u.name + '">删除</button>') +
+        '<button data-act="pwd" data-id="' + esc(u.id) + '" data-name="' + esc(u.name) + '">重置密码</button>' +
+        (isMe ? '' : '<button class="del" data-act="del" data-id="' + esc(u.id) + '" data-name="' + esc(u.name) + '">删除</button>') +
         '</span></div>';
     }).join("");
 
@@ -5984,7 +6021,7 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
       var sec = document.createElement("section");
       sec.className = "sect";
       sec.dataset.group = g.g;
-      sec.innerHTML = '<div class="sect-h"><h2>' + g.g +
+      sec.innerHTML = '<div class="sect-h"><h2>' + esc(g.g) +
         '</h2><span class="cnt">0</span><div class="rule"></div></div>' +
         '<div class="grid dropzone"></div>';
       document.getElementById("sections").appendChild(sec);
@@ -6516,7 +6553,7 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     var u = resolveCustomIconUrl(val);
     if (u) {
       prev.style.background = "none";
-      prev.innerHTML = '<img src="' + u + '" alt="">';
+      prev.innerHTML = '<img src="' + esc(safeUrl(u)) + '" alt="">';
       return;
     }
 
@@ -6531,7 +6568,7 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     }
     function showImg(src) {
       prev.style.background = "none";
-      prev.innerHTML = '<img src="' + src + '" alt="">';
+      prev.innerHTML = '<img src="' + esc(safeUrl(src)) + '" alt="">';
     }
     var siteUrl = (document.getElementById("fIn").value || "").trim() ||
                   (document.getElementById("fOut").value || "").trim();
@@ -6591,14 +6628,14 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
     q = (q || "").trim();
     if (!q) { buildHdGallery(); return; }
     var gal = document.getElementById("hdGallery");
-    if (gal) { gal.style.display = "grid"; gal.innerHTML = '<div class="hd-tip">正在搜索「' + q + '」…</div>'; }
+    if (gal) { gal.style.display = "grid"; gal.innerHTML = '<div class="hd-tip">正在搜索「' + esc(q) + '」…</div>'; }
     api("/api/icons/search?limit=72&q=" + encodeURIComponent(q))
       .then(function (r) { return r.json(); })
       .then(function (j) {
         if (!j || !j.ok) {
           renderIconTiles([], null);
           var g = document.getElementById("hdGallery");
-          if (g) g.innerHTML = '<div class="hd-more">图标库连不上：' + ((j && j.error) || "未知错误") + '</div>';
+          if (g) g.innerHTML = '<div class="hd-more">图标库连不上：' + esc((j && j.error) || "未知错误") + '</div>';
           return;
         }
         var items = (j.items || []).map(function (x) {
