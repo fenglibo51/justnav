@@ -274,6 +274,13 @@ JUSTNAV_INTERNAL_HOST         （空）            内网 IP/主机名，如 192
   GET    /api/icons/search         搜索图标库
   GET    /api/icons/get            取图标
 
+  注：这两个接口的内容都来自第三方，而 SVG 会被浏览器当「文档」渲染 ——
+  直接打开这个 URL 时，里面的脚本能读本站 cookie、调写接口。所以两边
+  都会先过一遍 SVG 检查（脚本标签、on* 事件属性、javascript:/data: 伪
+  协议、foreignObject 等），命中就当抓不到处理，回退默认图标；响应本身
+  还带 sandbox CSP 兜底。个别站点的 favicon 如果是带脚本的 SVG，你会看到
+  字母块而不是那个图标，这是故意的。
+
 壁纸
   GET    /api/wallpaper            壁纸元信息 + 缓存列表
   GET    /api/wallpaper/img?date=  取图
