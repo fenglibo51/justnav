@@ -16,6 +16,7 @@ import (
 
 	"justnav/internal/auth"
 	"justnav/internal/config"
+	"justnav/internal/discovery"
 	"justnav/internal/dockerx"
 	"justnav/internal/favicon"
 	"justnav/internal/icons"
@@ -130,7 +131,7 @@ func (s *Server) handleHealth(w http.ResponseWriter, r *http.Request) {
 		"uptimeSec":   int(time.Since(s.started).Seconds()),
 		"wallpaper":   s.Cfg.WallpaperEnabled,
 		"wallpaperAt": hasWall,
-		"docker":      s.Cfg.DockerHost != "",
+		"docker":      s.Cfg.DiscoveryFile != "", // 键名保持 docker 兼容前端；值表示"自动发现是否启用"
 	})
 }
 
@@ -573,20 +574,32 @@ func (s *Server) handleInbox(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if s.Cfg.DockerHost == "" {
+	// 读 justnav-discovery 写出来的快照。主程序不碰 Docker Socket。
+	// 三种"没数据"要分清楚，否则用户会以为是容器真的没了：
+	//   未启用（没配路径） / 已过期（采集器挂了） / 正常但没有候选
+	snap, dstat, loadErr := discovery.Load(s.Cfg.DiscoveryFile, s.Cfg.DiscoveryStale)
+
+	if !dstat.Enabled {
 		writeJSON(w, http.StatusOK, map[string]any{
 			"enabled": false,
-			"reason":  "未配置 JUSTNAV_DOCKER_HOST（建议接 docker-socket-proxy）",
+			"stale":   false,
+			"reason":  dstat.Reason,
 			"items":   []dockerx.Suggested{},
 		})
 		return
 	}
-	list, err := dockerx.Discover(r.Context(), s.Cfg.DockerHost, s.Cfg.DockerIncludeUnlabeled)
-	if err != nil {
+	if loadErr != nil {
 		writeJSON(w, http.StatusOK, map[string]any{
-			"enabled": true, "error": err.Error(), "items": []dockerx.Suggested{},
+			"enabled": true, "stale": true,
+			"reason": dstat.Reason,
+			"items":  []dockerx.Suggested{},
 		})
 		return
+	}
+
+	var list []dockerx.Suggested
+	if snap != nil {
+		list = dockerx.Suggest(snap.Containers, s.Cfg.DockerIncludeUnlabeled)
 	}
 	// 已经在导航里的容器不再提示
 	have := map[string]bool{}
@@ -601,7 +614,12 @@ func (s *Server) handleInbox(w http.ResponseWriter, r *http.Request) {
 		filtered = append(filtered, x)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"enabled": true, "items": filtered,
+		"enabled": true,
+		"stale":   dstat.Stale,
+		"reason":  dstat.Reason,
+		// 采集时间给前端判断"数据是不是很久没更新了"
+		"lastUpdated": dstat.LastUpdated,
+		"items":       filtered,
 		// 兜底候选没有地址，前端用 hostHint 拼 http://<host>:<port>
 		"hostHint": s.Cfg.InternalHost,
 	})

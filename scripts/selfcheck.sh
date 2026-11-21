@@ -92,6 +92,46 @@ grep -Fq -- 'nowTWC, errTWC' internal/weather/weather.go && ok "TWC 排在取数
 grep -Fq -- 'sameDay := v.at.Year()' internal/weather/weather.go && ok "天气缓存跨天自动失效（高低温不会拿昨天的）" || bad "跨天没判断，高低温可能沿用昨天"
 grep -Fq -- 'CK_WX_PERIOD = 60 * 60 * 1000' "$WEB" && ok "天气 1 小时拉一次（后端缓存同周期，对齐）" || bad "天气轮询周期不对"
 grep -Fq -- 'if (document.hidden) { scheduleWeather(); return; }' "$WEB" && ok "页面在后台时不拉天气" || bad "后台还在拉天气，白耗请求"
+
+# ---------- Docker 自动发现：主程序必须零 Docker API 能力 ----------
+# 这段是整个安全改造的核心，退化了就等于白做
+n_http=$(go list -deps ./internal/dockerx 2>/dev/null | grep -cE '^net/http$')
+[ "$n_http" = "0" ] && ok "dockerx 无 net/http 依赖（主程序没有发 Docker 请求的能力）" \
+                    || bad "dockerx 引入了 net/http —— 主程序又能直接打 Docker API 了"
+
+grep -Fq -- 'os.ModeSocket' internal/config/config.go \
+  && bad "config 还在自动探测 /var/run/docker.sock" \
+  || ok "不再自动探测 Docker Socket"
+
+# 只查真正的读取动作，注释里提到这个名字不算
+grep -Fq -- 'Getenv("JUSTNAV_DOCKER_HOST")' internal/config/config.go \
+  && bad "JUSTNAV_DOCKER_HOST 后门还在（能直连 Docker API）" \
+  || ok "JUSTNAV_DOCKER_HOST 已移除（不留直连后门）"
+
+grep -Fq -- 'DiscoveryFile' internal/config/config.go \
+  && ok "配置里有快照路径项" || bad "配置缺 DiscoveryFile"
+
+grep -Fq -- 'JUSTNAV_DISCOVERY_FILE' web/index.html compose.yaml internal/config/config.go \
+  && ok "快照路径三处一致" || bad "快照环境变量名在三处不一致"
+
+[ -f cmd/justnav-discovery/main.go ] && ok "采集器源码在" || bad "缺 cmd/justnav-discovery"
+[ -f Dockerfile.discovery ] && ok "采集器 Dockerfile 在" || bad "缺 Dockerfile.discovery"
+
+grep -Fq -- 'apiPath         = "/containers/json?all=true"' cmd/justnav-discovery/main.go \
+  && ok "采集器 API 路径写死（不接受外部输入）" || bad "采集器 API 路径不是写死的"
+
+grep -Fq -- 'allowedLabels' cmd/justnav-discovery/main.go \
+  && ok "采集器有标签白名单" || bad "采集器没做标签白名单，可能把密码写进快照"
+
+grep -Fq -- 'network_mode: none' compose.yaml \
+  && ok "采集器配了 network_mode: none" || bad "采集器有网络，攻击面变大"
+
+# 主程序服务块里不能出现 socket 挂载：先切出 justnav 段再查
+# 只看真正的挂载行（- /var/run/docker.sock），注释里提到这个名字不算
+awk '/^  justnav:/{f=1} /^  discovery:/{f=0} f' compose.yaml \
+  | grep -qE '^[[:space:]]+-[[:space:]]*/var/run/docker\.sock' \
+  && bad "compose 的 justnav 服务仍挂载 docker.sock" \
+  || ok "compose 的 justnav 服务不挂 docker.sock"
 # 加 widget 要同时改三处（设置列表 / WIDGETS 渲染器 / 后端白名单），漏一处就是"做了但用不了"
 grep -Fq -- '{ k: "weather",   n: "天气" }' "$WEB" && ok "设置面板里能勾选天气卡片" || bad "天气 widget 没进设置列表，用户根本开不了"
 grep -Fq -- 'weather: { name: "天气", render: renderWeather' "$WEB" && ok "天气 widget 有渲染器" || bad "WIDGETS 里没有 weather 渲染器"
@@ -231,7 +271,7 @@ grep -Fq -- 'id="nasStats"' "$WEB" && ok "E: 侧栏 NAS 状态条" || bad "E: �
 grep -Fq -- 'function paintHostStats' "$WEB" && ok "E: 状态条有渲染逻辑" || bad "E: 状态条没有渲染函数"
 grep -Fq -- '"host":      s.collectHostStats(),' internal/api/api.go && ok "E: /api/status 带上宿主机数据（复用轮询，不打额外接口）" || bad "E: status 没带宿主机数据"
 
-echo "== 3.19 在线图标库 + docker socket 直挂（2026-11-13）"
+echo "== 3.19 在线图标库 + Docker 自动发现（2026-11-21 改快照架构）"
 grep -Fq -- 'func (c *Client) Search' internal/icons/icons.go && ok "图标库搜索（metadata 索引 + 别名）" || bad "缺少图标库搜索"
 grep -Fq -- 'func (c *Client) Get' internal/icons/icons.go && ok "图标代理 + 磁盘缓存" || bad "缺少图标代理：前端会直连 CDN，换网络就空白"
 grep -Fq -- 'homarr-labs/dashboard-icons' internal/icons/icons.go && ok "图标源是 dashboard-icons（3500+）" || bad "图标源丢了"
@@ -240,9 +280,9 @@ grep -Fq -- 'func (s *Server) handleIconSearch' internal/api/iconlib.go && ok "�
 grep -Fq -- 'func (s *Server) handleIconGet' internal/api/iconlib.go && ok "取图标接口" || bad "缺少 /api/icons/get"
 grep -Fq -- 'if (v.indexOf("lib:") === 0)' "$WEB" && ok "前端支持 lib:xxx（在线图标）" || bad "前端不认 lib: 前缀"
 grep -Fq -- 'id="fIconSearch"' "$WEB" && ok "编辑弹窗有在线图标搜索框" || bad "没有在线搜索入口"
-grep -Fq -- 'func dockerHost() string' internal/config/config.go && ok "未配置时自动探测 /var/run/docker.sock" || bad "仍需手写 JUSTNAV_DOCKER_HOST"
-grep -Fq -- 'unix:///var/run/docker.sock' compose.yaml && ok "compose 默认挂 socket" || bad "compose 还在用旁车 tcp://"
-grep -Eq '^[[:space:]]*docker-proxy:' compose.yaml && bad "compose 里还有旁车服务（2026-11-13 已改为直挂 socket）" || ok "compose 已去掉旁车"
+grep -Fq -- 'func dockerHost() string' internal/config/config.go && bad "还在自动探测 socket（调 API 的能力应已搬到 discovery 旁车）" || ok "不再自动探测 Docker Socket"
+grep -Fq -- 'JUSTNAV_DISCOVERY_FILE' compose.yaml && ok "compose 用快照文件而不是 socket" || bad "compose 没配快照路径"
+grep -Fq -- 'network_mode: none' compose.yaml && ok "采集器跑在无网络模式" || bad "采集器有网卡，攻击面变大"
 
 echo "== 3.20 隐藏区（没有前端的容器不进首页，可恢复）"
 grep -Fq -- 'Hidden bool `json:"hidden,omitempty"`' internal/store/store.go && ok "条目带 hidden 标记（落库，不是只在前端过滤）" || bad "缺少 hidden 字段，隐藏会丢"

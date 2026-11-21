@@ -5,7 +5,6 @@ package config
 import (
 	"os"
 	"strconv"
-	"strings"
 	"time"
 )
 
@@ -22,10 +21,18 @@ type Config struct {
 	WallpaperKeepDays int
 	WallpaperMaxBytes int64
 
-	// Docker 发现：留空表示禁用。
-	// 推荐填 socket-proxy 地址（如 tcp://docker-proxy:2375），
-	// 不要直接把 /var/run/docker.sock 挂进容器 —— 等于给出宿主机 root。
-	DockerHost string
+	// Docker 自动发现：读 justnav-discovery 旁车写出来的快照文件。
+	//
+	// ★ 主程序【不持有 Docker Socket】，也不再支持 JUSTNAV_DOCKER_HOST。
+	//   那条路能直连 Docker API，而 Docker API 没有只读概念 ——
+	//   读容器列表和创建特权容器走同一个 socket，等于把宿主机 root 交给
+	//   一个对外的 Web 应用。所以调 API 的能力整个搬进了 discovery 二进制，
+	//   主程序只认这个 JSON 文件。
+	//
+	// 留空 = 未启用，功能界面上显示「未启用」，不是故障。
+	DiscoveryFile string
+	// 快照超过这么久没更新就判定过期。采集器默认 15 秒一次，这里留 4 倍余量。
+	DiscoveryStale time.Duration
 
 	// 状态探测
 	ProbeEnabled  bool
@@ -61,7 +68,8 @@ func Load() Config {
 		WallpaperEnabled:       envBool("JUSTNAV_WALLPAPER", true),
 		WallpaperKeepDays:      envInt("JUSTNAV_WALLPAPER_KEEP_DAYS", 30),
 		WallpaperMaxBytes:      envInt64("JUSTNAV_WALLPAPER_MAX_BYTES", 300*1024*1024),
-		DockerHost:             dockerHost(),
+		DiscoveryFile:          env("JUSTNAV_DISCOVERY_FILE", ""),
+		DiscoveryStale:         time.Duration(envInt("JUSTNAV_DISCOVERY_STALE_SEC", 60)) * time.Second,
 		ProbeEnabled:           envBool("JUSTNAV_PROBE", true),
 		ProbeInterval:          time.Duration(envInt("JUSTNAV_PROBE_INTERVAL_SEC", 60)) * time.Second,
 		ProbeTimeout:           time.Duration(envInt("JUSTNAV_PROBE_TIMEOUT_SEC", 4)) * time.Second,
@@ -119,19 +127,3 @@ func envInt64(k string, def int64) int64 {
 	return n
 }
 
-// dockerHost 决定 Docker 发现走哪条路：
-//   - 显式配了 JUSTNAV_DOCKER_HOST 就听配置的；
-//   - 没配但容器里挂了 /var/run/docker.sock，就直接挂 socket 这条（2026-11-13 起
-//     默认走法，不再需要 docker-socket-proxy 旁车）；
-//   - 都没有就空着，前端「待收录」会提示未启用。
-func dockerHost() string {
-	if v := strings.TrimSpace(os.Getenv("JUSTNAV_DOCKER_HOST")); v != "" {
-		return v
-	}
-	for _, p := range []string{"/var/run/docker.sock", "/run/docker.sock"} {
-		if st, err := os.Stat(p); err == nil && st.Mode()&os.ModeSocket != 0 {
-			return "unix://" + p
-		}
-	}
-	return ""
-}

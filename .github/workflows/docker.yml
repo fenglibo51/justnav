@@ -3,7 +3,7 @@ name: docker
 on:
   push:
     tags: ["v*"]
-    branches: [main]
+    branches: [main, master]
   pull_request:
   workflow_dispatch:
 
@@ -11,7 +11,31 @@ env:
   IMAGE: ghcr.io/${{ github.repository }}
 
 jobs:
+  # 先跑一遍测试，不然镜像构建成功但代码是坏的
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24"
+      - name: go vet
+        run: go vet ./...
+      - name: go test
+        run: go test ./...
+      - name: 自检
+        run: bash scripts/selfcheck.sh
+      - name: 关键验证 —— 主程序不含 Docker API 调用能力
+        run: |
+          n=$(go list -deps ./internal/dockerx | grep -cE '^net/http$' || true)
+          echo "dockerx 的 net/http 依赖数: $n"
+          if [ "$n" != "0" ]; then
+            echo "::error::internal/dockerx 引入了 net/http —— 主程序不该有发 Docker API 请求的能力"
+            exit 1
+          fi
+
   build:
+    needs: test
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -34,7 +58,8 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: 算 tag 和标签
+      # ---------- 主程序镜像 ----------
+      - name: 算主程序 tag
         id: meta
         uses: docker/metadata-action@v5
         with:
@@ -46,7 +71,7 @@ jobs:
             type=ref,event=branch
             type=sha,format=short
 
-      - name: 构建并推送
+      - name: 构建并推送主程序
         uses: docker/build-push-action@v6
         with:
           context: .
@@ -56,5 +81,32 @@ jobs:
           labels: ${{ steps.meta.outputs.labels }}
           build-args: |
             VERSION=${{ steps.meta.outputs.version }}
+          cache-from: type=gha
+          cache-to: type=gha,mode=max
+
+      # ---------- discovery 采集器镜像 ----------
+      # 单独一个 tag 后缀：ghcr.io/<repo>-discovery:1.1.0
+      # 版本号跟主程序对齐，方便用户按同一版本拉两个镜像
+      - name: 算 discovery tag
+        id: meta-disc
+        uses: docker/metadata-action@v5
+        with:
+          images: ${{ env.IMAGE }}-discovery
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=raw,value=latest,enable={{is_default_branch}}
+            type=ref,event=branch
+            type=sha,format=short
+
+      - name: 构建并推送 discovery
+        uses: docker/build-push-action@v6
+        with:
+          context: .
+          file: ./Dockerfile.discovery
+          platforms: linux/amd64,linux/arm64
+          push: ${{ github.event_name != 'pull_request' }}
+          tags: ${{ steps.meta-disc.outputs.tags }}
+          labels: ${{ steps.meta-disc.outputs.labels }}
           cache-from: type=gha
           cache-to: type=gha,mode=max

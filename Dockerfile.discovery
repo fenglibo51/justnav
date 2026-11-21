@@ -1,0 +1,41 @@
+# justnav-discovery —— 唯一持有 Docker Socket 的采集器。
+#
+# 刻意做得极小：
+#   没有 shell、没有 curl、没有 docker CLI、没有 CA 证书
+#   没有 HTTP 服务、没有监听端口（配 network_mode: none 跑）
+#   只有 /justnav-discovery 一个静态二进制
+#
+# 这样即使它被攻破，攻击者手上也只有「一个只能读容器列表的哑进程」，
+# 没有可执行命令的解释器、没有可下载第二阶段的工具。
+#
+# ⚠️ 它仍然持有完整的 Docker Socket 权限（Docker API 没有只读概念）。
+#    这个镜像缩小的是「被利用后的操作空间」，不是「权限本身」。
+
+# ---- 构建阶段 ----
+FROM --platform=$BUILDPLATFORM golang:1.24-alpine AS build
+WORKDIR /src
+
+COPY go.mod ./
+RUN go mod download 2>/dev/null || true
+
+COPY . .
+
+ARG TARGETOS=linux
+ARG TARGETARCH=amd64
+
+RUN CGO_ENABLED=0 GOOS=${TARGETOS} GOARCH=${TARGETARCH} \
+    go build -trimpath -ldflags="-s -w" \
+      -o /out/justnav-discovery ./cmd/justnav-discovery
+
+# ---- 运行阶段 ----
+FROM scratch
+
+COPY --from=build /out/justnav-discovery /justnav-discovery
+
+# 输出路径与间隔都给了默认值，compose 里可以覆盖
+ENV JUSTNAV_DISCOVERY_OUT=/out/containers.json \
+    JUSTNAV_DISCOVERY_INTERVAL_SEC=15 \
+    JUSTNAV_DISCOVERY_SOCK=/var/run/docker.sock
+
+# 不声明 EXPOSE —— 这个进程不提供任何网络服务
+ENTRYPOINT ["/justnav-discovery"]

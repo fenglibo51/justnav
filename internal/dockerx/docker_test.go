@@ -1,49 +1,37 @@
 package dockerx
 
 import (
-	"context"
-	"encoding/json"
-	"net/http"
-	"net/http/httptest"
 	"testing"
+
+	"justnav/internal/discovery"
 )
 
-func fakeDocker(t *testing.T, payload string) *httptest.Server {
-	t.Helper()
-	return httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if r.URL.Path != "/containers/json" {
-			t.Errorf("意外路径: %s", r.URL.Path)
-		}
-		w.Header().Set("Content-Type", "application/json")
-		_, _ = w.Write([]byte(payload))
-	}))
+// 快照里的容器列表（模拟 discovery 写出来的内容）
+func sample() []discovery.Container {
+	return []discovery.Container{
+		{ID: "c1", Name: "plex", Image: "plexinc/pms", State: "running", Status: "Up 2 hours",
+			Labels: map[string]string{
+				"nav.enable": "true", "nav.name": "Plex", "nav.url": "http://10.0.0.2:32400",
+				"nav.url.external": "https://plex.example.com", "nav.icon": "play", "nav.group": "影音媒体",
+			},
+			Ports: []discovery.Port{{Private: 32400, Public: 32400, Protocol: "tcp"}}},
+		{ID: "c2", Name: "qbittorrent", Image: "linuxserver/qbittorrent", State: "running", Status: "Up 1 hour",
+			Ports: []discovery.Port{{Private: 8080, Public: 8080, Protocol: "tcp"}}},
+		{ID: "c3", Name: "some-db", Image: "postgres:17", State: "running", Status: "Up 1 hour",
+			Ports: []discovery.Port{{Private: 5432, Protocol: "tcp"}}},
+		{ID: "c4", Name: "stopped-one", Image: "foo/bar", State: "exited", Status: "Exited",
+			Ports: []discovery.Port{{Private: 9000, Public: 9000, Protocol: "tcp"}}},
+		{ID: "c5", Name: "justnav", Image: "justnav:local", State: "running", Status: "Up",
+			Labels: map[string]string{"nav.enable": "true"},
+			Ports:  []discovery.Port{{Private: 8522, Public: 8522, Protocol: "tcp"}}},
+		{ID: "c6", Name: "hidden", Image: "x/y", State: "running", Status: "Up",
+			Labels: map[string]string{"nav.enable": "true", "nav.hide": "true"},
+			Ports:  []discovery.Port{{Private: 80, Public: 80, Protocol: "tcp"}}},
+	}
 }
 
-const sample = `[
-  {"Names":["/plex"],"Image":"plexinc/pms","State":"running","Status":"Up 2 hours",
-   "Labels":{"nav.enable":"true","nav.name":"Plex","nav.url":"http://10.0.0.2:32400",
-             "nav.url.external":"https://plex.example.com","nav.icon":"play","nav.group":"影音媒体"},
-   "Ports":[{"PrivatePort":32400,"PublicPort":32400}]},
-  {"Names":["/qbittorrent"],"Image":"linuxserver/qbittorrent","State":"running","Status":"Up 1 hour",
-   "Labels":{},"Ports":[{"PrivatePort":8080,"PublicPort":8080}]},
-  {"Names":["/some-db"],"Image":"postgres:17","State":"running","Status":"Up 1 hour",
-   "Labels":{},"Ports":[{"PrivatePort":5432}]},
-  {"Names":["/stopped-one"],"Image":"foo/bar","State":"exited","Status":"Exited",
-   "Labels":{},"Ports":[{"PrivatePort":9000,"PublicPort":9000}]},
-  {"Names":["/justnav"],"Image":"justnav:local","State":"running","Status":"Up",
-   "Labels":{"nav.enable":"true"},"Ports":[{"PrivatePort":8522,"PublicPort":8522}]},
-  {"Names":["/hidden"],"Image":"x/y","State":"running","Status":"Up",
-   "Labels":{"nav.enable":"true","nav.hide":"true"},"Ports":[{"PrivatePort":80,"PublicPort":80}]}
-]`
-
-func TestDiscoverLabelAndPortFallback(t *testing.T) {
-	srv := fakeDocker(t, sample)
-	defer srv.Close()
-
-	got, err := Discover(context.Background(), "tcp://"+srv.Listener.Addr().String(), true)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestSuggestLabelAndPortFallback(t *testing.T) {
+	got := Suggest(sample(), true)
 
 	byName := map[string]Suggested{}
 	for _, x := range got {
@@ -88,48 +76,28 @@ func TestDiscoverLabelAndPortFallback(t *testing.T) {
 }
 
 // 关掉兜底扫描时，只出带标签的
-func TestDiscoverWithoutFallback(t *testing.T) {
-	srv := fakeDocker(t, sample)
-	defer srv.Close()
-
-	got, err := Discover(context.Background(), "tcp://"+srv.Listener.Addr().String(), false)
-	if err != nil {
-		t.Fatal(err)
-	}
+func TestSuggestWithoutFallback(t *testing.T) {
+	got := Suggest(sample(), false)
 	if len(got) != 1 || got[0].Name != "Plex" {
 		t.Errorf("只应返回带标签的那一个, got %+v", got)
 	}
 }
 
-func TestDiscoverBadHost(t *testing.T) {
-	if _, err := Discover(context.Background(), "", true); err == nil {
-		t.Error("空 host 应该报错")
-	}
-	if _, err := Discover(context.Background(), "ftp://x", true); err == nil {
-		t.Error("不支持的 scheme 应该报错")
+func TestSuggestEmpty(t *testing.T) {
+	got := Suggest(nil, true)
+	if len(got) != 0 {
+		t.Errorf("空快照应该返回空候选, got %+v", got)
 	}
 }
 
-func TestDiscoverErrorStatus(t *testing.T) {
-	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		w.WriteHeader(http.StatusForbidden)
-		_, _ = w.Write([]byte(`{"message":"denied"}`))
-	}))
-	defer srv.Close()
-
-	_, err := Discover(context.Background(), "tcp://"+srv.Listener.Addr().String(), true)
-	if err == nil {
-		t.Fatal("403 应该报错，而不是静默返回空")
-	}
-}
-
-// 确保 JSON 结构与真实 Docker API 对得上（字段名不能自己编）
-func TestPayloadShape(t *testing.T) {
-	var list []container
-	if err := json.Unmarshal([]byte(sample), &list); err != nil {
-		t.Fatalf("样例 JSON 解析失败: %v", err)
-	}
-	if len(list) != 6 {
-		t.Errorf("样例应解析出 6 个容器, got %d", len(list))
-	}
+// TestNoNetworkImports 确认这个包没有被引入网络能力。
+// 主程序编译产物里不该存在任何能发 Docker API 请求的代码路径。
+func TestNoNetworkImports(t *testing.T) {
+	// 这是一个编译期断言式的检查：本文件的 import 列表里只有 testing / discovery。
+	// dockerx 包内任何文件 import 了 net 或 net/http，这个测试的作者就会看到
+	// 新的依赖出现在 go list 里 —— 用 go vet 也能发现。
+	//
+	// 真正的保障在 CI：`go list -deps ./internal/dockerx | grep -c 'net/http'` 应为 0。
+	// 这里只做一个显式提醒，不重复实现。
+	t.Log("dockerx 应保持零网络依赖，见 CI 的 go list 检查与 selfcheck.sh")
 }

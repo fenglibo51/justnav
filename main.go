@@ -140,7 +140,7 @@ func main() {
 
 	go func() {
 		log.Printf("监听 :%s | 数据目录 %s | 壁纸 %v | Docker 发现 %q",
-			cfg.Port, cfg.DataDir, cfg.WallpaperEnabled, cfg.DockerHost)
+			cfg.Port, cfg.DataDir, cfg.WallpaperEnabled, cfg.DiscoveryFile)
 		if err := httpSrv.ListenAndServe(); err != nil && !errors.Is(err, http.ErrServerClosed) {
 			log.Fatalf("HTTP 服务退出: %v", err)
 		}

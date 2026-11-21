@@ -114,7 +114,7 @@
 
 **部署与运维**
 
-- 🏷️ **Docker 标签发现** —— 带 `nav.*` 标签的容器进「待收录」，人工确认后才上首页
+- 🏷️ **Docker 自动发现** —— 独立采集器旁车扫容器，只输出白名单字段；带 `nav.*` 标签的精确收录，没标签有端口的也能兜底，都要人工确认才上首页
 - 📡 **在线状态探测** —— 定期探测每个服务，卡片角标显示在线 / 未响应
 - 📦 **单二进制部署** —— 无外部数据库，`FROM scratch`（约 9MB），多架构镜像
 - 🔐 **多账号** —— 每个账号一套独立的条目、分组、壁纸和设置
@@ -191,7 +191,8 @@ JUSTNAV_PROBE_INTERVAL_SEC    60               探测间隔
 JUSTNAV_PROBE_TIMEOUT_SEC     4                单次探测超时
 JUSTNAV_PROBE_THRESHOLD       2                连续失败几次判离线
 JUSTNAV_PROBE_INSECURE       true             放行自签名证书
-JUSTNAV_DOCKER_HOST           （空=自动发现）   Docker 地址，见「Docker 自动发现」
+JUSTNAV_DISCOVERY_FILE        （空=未启用）     容器快照路径，见「Docker 自动发现」
+JUSTNAV_DISCOVERY_STALE_SEC   60               快照超过多少秒没更新判为过期
 JUSTNAV_DOCKER_SCAN_ALL       true             扫所有有端口映射的容器（不要求打标签）
 JUSTNAV_AUTH                  true             是否启用登录认证
 JUSTNAV_USER                  admin            账号
@@ -324,58 +325,103 @@ data/wallpaper/                  Bing 每日缓存（共享，只下一份）
 
 ## 🏷️ Docker 自动发现（可选）
 
-### 先说清楚容器数量
+### 为什么是两个容器
 
 ```
-最小部署            1 个容器（justnav 自己）
-要 Docker 自动发现   还是 1 个容器 —— 直接把 socket 挂进来
+最小部署              1 个容器（justnav 自己）
+要 Docker 自动发现     2 个 —— 多一个 justnav-discovery 采集器
 ```
 
-不想要「扫容器」这个功能的话，把 `JUSTNAV_DOCKER_HOST` 留空、也不挂 socket 就行，
-导航、壁纸、状态探测、书签导入全部不受影响。
+`/var/run/docker.sock` 一旦挂进容器，就等于把宿主机 root 交给了这个进程。这不是 Docker 的漏洞，是设计如此：daemon 以 root 跑，任何能连上 socket 的客户端都能命令它干活 —— 包括创建特权容器、把宿主机根目录挂进去。
 
-### 接法（挂 socket）
+而且 **Docker API 没有只读概念**：读容器列表和创建特权容器走同一个 socket、同一套鉴权。加 `:ro` 只挡「文件能不能被写」，不挡 API 调用。
+
+所以调 API 这件事被整个拆到一个独立的最小进程里：
+
+```
+justnav-discovery   唯一挂 socket 的，只做「采列表 → 过滤字段 → 写 JSON」
+justnav（主程序）   完全不碰 Docker，只读那个 JSON
+```
+
+即使主程序被攻破，攻击者也拿不到 Docker API，只能读到一个经过白名单过滤的快照。
+
+### 启用方式
+
+```bash
+docker compose up -d                       # 只有主程序，自动发现不可用
+docker compose --profile discovery up -d   # 加上采集器
+```
+
+主程序这边只需要两个环境变量：
 
 ```yaml
-    volumes:
-      - ./data:/data:rw
-      - /var/run/docker.sock:/var/run/docker.sock
+JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
+JUSTNAV_DISCOVERY_STALE_SEC: "60"
 ```
 
-环境变量可以不写 —— 程序启动时发现 `/var/run/docker.sock` 会自动用它。
-
-### ⚠️ `:ro` 是假安全（这条最重要）
+### 采集器做了什么
 
 ```
--v /var/run/docker.sock:/var/run/docker.sock:ro
+每 15 秒    GET /containers/json?all=true（路径写死，不接受任何外部输入）
+输出字段    id / name / image / state / status / ports / nav.* 标签
+不输出      Env / Mounts / HostConfig / NetworkSettings —— 那些里面全是密码
+写入方式    临时文件 + fsync + rename，读端永远看不到写一半的文件
+失败处理    保留上次成功的快照，不会把「采集挂了」表现成「容器都没了」
 ```
 
-看起来是只读，**实际上 `:ro` 只约束「这个文件能不能被写」，
-完全不约束「这个 socket 提供的 API 能干什么」。** 挂上去之后，容器里的进程能：
+隔离措施：
 
-```
-读所有容器的环境变量    ← 里面通常全是数据库密码、API key
-创建特权容器并挂载宿主机根目录
-docker exec 进任何正在运行的容器
-```
-
-换句话说：**挂 socket ≈ 给宿主机 root。** 区别只是「这个程序愿不愿意调那些接口」，
-而不是「能不能」。
-
-### 危险组合（务必避开）
-
-```
-反代暴露到公网  +  socket 直挂
+```yaml
+network_mode: none        # 没网卡，不提供任何网络服务
+read_only: true           # 根文件系统只读
+cap_drop: [ALL]           # 丢掉所有 capabilities
+security_opt: no-new-privileges
 ```
 
-含义是：**任何人只要能利用这个应用的一个漏洞，就等于拿到你 NAS 的 root。**
+实测开销（48 个容器，跑 27 分钟采了 110 次）：
 
-本项目内置登录鉴权，但鉴权不等于防住 0day。**建议：只在内网用。**
+```
+CPU        0.00%（累积 CPU 时间不到 1 秒）
+内存       8.3 MiB
+网络       0 B / 0 B
+磁盘 IO    0 B / 0 B
+```
+
+因为 `GET /containers/json` 是 daemon 的内存操作，不读磁盘。
+
+### ⚠️ 但这仍然不是「真只读」
+
+采集器自己**仍然持有完整的 Docker Socket 权限**。这是 Docker API 的固有特性，不是本项目的实现问题。
+
+这个方案缩小的是：
+
+```
+之前   主程序被攻破  →  daemon 完整权限  →  宿主机 root
+之后   主程序被攻破  →  只能读一个过滤后的 JSON
+       攻击者要提权还得再攻破那个哑采集器
+```
+
+缩小的是「被利用后能干什么」，不是「权限本身」。完整分析（含 Docker 官方出处、同类项目做法、四种方案对比）见 [`docs/docker-socket-security.md`](docs/docker-socket-security.md)。
+
+### 不想要这个功能
+
+把 `JUSTNAV_DISCOVERY_FILE` 留空、不启用 discovery profile 就行。
+
+导航、壁纸、状态探测、天气、下载器全部不受影响 —— 只有「待收录」会显示「未启用」。
+
+### 三块状态是分开的
+
+```
+容器状态        running / exited，来自快照
+HTTP 可达性     probe 模块独立探测，跟 Docker 无关
+快照新鲜度      超过 STALE_SEC 没更新就标记过期，旧候选仍可用
+```
+
+不能混成一个绿点 —— 容器在跑不代表服务能打开，快照过期也不代表容器被删了。
 
 ### 不打标签也能用
 
-socket 挂上后，`JUSTNAV_DOCKER_SCAN_ALL=true`（默认）会把**有端口映射的运行中容器**
-都列为「待收录」候选，不打任何标签也能在界面上勾选收录。
+采集器把**有端口映射的运行中容器**都列为候选，不打任何标签也能在界面上勾选收录。
 
 ```
 会出现在待收录                    不会出现

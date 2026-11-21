@@ -5273,9 +5273,19 @@ var HOLIDAYS = {"2026":{"2026-01-01":{"n":"元旦","o":1},"2026-01-02":{"n":"元
             '<span style="font-size:11px;opacity:.75">' + (j.reason || "") + '</span></div>';
           return;
         }
-        if (j.error) {
-          $("#discList").innerHTML = '<div class="pal-none">连不上 Docker API<br>' +
-            '<span style="font-size:11px;opacity:.75">' + j.error + '</span></div>';
+        // 数据过期：采集器挂了或停了。旧候选还能看，但要在顶上标一句，
+        // 否则用户会把"很久没更新"当成"容器真的都没了"
+        if (j.stale) {
+          SUGG = j.items || [];
+          HOST_HINT = j.hostHint || "";
+          paintInbox();
+          var bar = document.createElement("div");
+          bar.className = "pal-none";
+          bar.style.cssText = "padding:8px 12px;margin-bottom:8px;border-radius:10px;"
+            + "background:rgba(200,120,40,.18);font-size:11.5px;line-height:1.5";
+          bar.textContent = "⚠ 采集数据已过期 —— " + (j.reason || "采集器可能停了")
+            + "。下面是最后一次成功采集的内容。";
+          $("#discList").insertBefore(bar, $("#discList").firstChild);
           return;
         }
         SUGG = j.items || [];
