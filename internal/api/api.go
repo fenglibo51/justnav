@@ -817,7 +817,11 @@ func (s *Server) authGate(next http.Handler) http.Handler {
 		})
 	}
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		if publicPaths[r.URL.Path] {
+		// 静态资源（favicon / apple-touch-icon）必须免登录：浏览器请求这些
+		// 的时候往往还没登录，甚至登录页本身就是未登录态。拦下来会导致
+		// 标签页图标 401、iOS 添加到主屏拿不到图标。
+		// 里面只有图标文件，没有任何业务数据。
+		if publicPaths[r.URL.Path] || strings.HasPrefix(r.URL.Path, "/assets/") {
 			next.ServeHTTP(w, r)
 			return
 		}

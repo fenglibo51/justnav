@@ -144,6 +144,11 @@ grep -Fq -- '192.168.1.10:8096' internal/favicon/ssrf_test.go && ok "单测覆�
 # ---------- 关登录模式（P2-9：曾经所有业务接口 401）----------
 grep -Fq -- 'LocalUserID' internal/store/registry.go && ok "单机模式有固定身份" || bad "关登录后没人注入用户，接口全 401"
 grep -Fq -- 'store.LocalUserID' internal/api/api.go && ok "authGate 关认证时注入本机用户" || bad "authGate 关认证时直接放行，业务接口拿不到用户"
+# 静态资源必须免登录：favicon 在登录页（未登录态）就要能加载，
+# 拦下来会导致标签页图标 401、iOS 添加到主屏没图标。
+grep -Fq -- 'strings.HasPrefix(r.URL.Path, "/assets/")' internal/api/api.go \
+  && ok "静态资源（/assets/）免登录" \
+  || bad "authGate 没放行 /assets/ —— favicon 在登录页会 401"
 grep -Fq -- 'userID == LocalUserID' internal/store/registry.go && ok "本机用户落在 data 根目录" || bad "本机用户会造 users/__local__ 子目录"
 grep -A3 -- 'func (r \*Registry) Dir' internal/store/registry.go | grep -Fq 'dataRoot' && ok "Dir 对本机用户返回根目录" || bad "Dir 没处理本机用户"
 
