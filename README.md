@@ -325,126 +325,38 @@ data/wallpaper/                  Bing 每日缓存（共享，只下一份）
 
 ## 🏷️ Docker 自动发现（可选）
 
-### 为什么是两个容器
+想让导航页自动发现 NAS 上的容器，多起一个采集器就行。
 
-```
-最小部署              1 个容器（justnav 自己）
-要 Docker 自动发现     2 个 —— 多一个 justnav-discovery 采集器
-```
-
-`/var/run/docker.sock` 一旦挂进容器，就等于把宿主机 root 交给了这个进程。这不是 Docker 的漏洞，是设计如此：daemon 以 root 跑，任何能连上 socket 的客户端都能命令它干活 —— 包括创建特权容器、把宿主机根目录挂进去。
-
-而且 **Docker API 没有只读概念**：读容器列表和创建特权容器走同一个 socket、同一套鉴权。加 `:ro` 只挡「文件能不能被写」，不挡 API 调用。
-
-所以调 API 这件事被整个拆到一个独立的最小进程里：
-
-```
-justnav-discovery   唯一挂 socket 的，只做「采列表 → 过滤字段 → 写 JSON」
-justnav（主程序）   完全不碰 Docker，只读那个 JSON
-```
-
-即使主程序被攻破，攻击者也拿不到 Docker API，只能读到一个经过白名单过滤的快照。
-
-### 启用方式
+### 开启
 
 ```bash
-docker compose up -d                       # 只有主程序，自动发现不可用
-docker compose --profile discovery up -d   # 加上采集器
+docker compose --profile discovery up -d
 ```
 
-主程序这边只需要两个环境变量：
+### 关闭
 
-```yaml
-JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
-JUSTNAV_DISCOVERY_STALE_SEC: "60"
-```
+默认就是关的，什么都不用做。
 
-### 采集器做了什么
+### 为什么是两个容器
 
-```
-每 15 秒    GET /containers/json?all=true（路径写死，不接受任何外部输入）
-输出字段    id / name / image / state / status / ports / nav.* 标签
-不输出      Env / Mounts / HostConfig / NetworkSettings —— 那些里面全是密码
-写入方式    临时文件 + fsync + rename，读端永远看不到写一半的文件
-失败处理    保留上次成功的快照，不会把「采集挂了」表现成「容器都没了」
-```
+把 Docker 的 socket 挂进主程序，等于把 NAS 的最高权限交给它。单独拆个采集器出来，主程序就拿不到。
 
-隔离措施：
+代价是多 8MB 内存，实测 CPU 占用 0%。
 
-```yaml
-network_mode: none        # 没网卡，不提供任何网络服务
-read_only: true           # 根文件系统只读
-cap_drop: [ALL]           # 丢掉所有 capabilities
-security_opt: no-new-privileges
-```
+### 打标签（可选）
 
-实测开销（48 个容器，跑 27 分钟采了 110 次）：
-
-```
-CPU        0.00%（累积 CPU 时间不到 1 秒）
-内存       8.3 MiB
-网络       0 B / 0 B
-磁盘 IO    0 B / 0 B
-```
-
-因为 `GET /containers/json` 是 daemon 的内存操作，不读磁盘。
-
-### ⚠️ 但这仍然不是「真只读」
-
-采集器自己**仍然持有完整的 Docker Socket 权限**。这是 Docker API 的固有特性，不是本项目的实现问题。
-
-这个方案缩小的是：
-
-```
-之前   主程序被攻破  →  daemon 完整权限  →  宿主机 root
-之后   主程序被攻破  →  只能读一个过滤后的 JSON
-       攻击者要提权还得再攻破那个哑采集器
-```
-
-缩小的是「被利用后能干什么」，不是「权限本身」。完整分析（含 Docker 官方出处、同类项目做法、四种方案对比）见 [`docs/docker-socket-security.md`](docs/docker-socket-security.md)。
-
-### 不想要这个功能
-
-把 `JUSTNAV_DISCOVERY_FILE` 留空、不启用 discovery profile 就行。
-
-导航、壁纸、状态探测、天气、下载器全部不受影响 —— 只有「待收录」会显示「未启用」。
-
-### 三块状态是分开的
-
-```
-容器状态        running / exited，来自快照
-HTTP 可达性     probe 模块独立探测，跟 Docker 无关
-快照新鲜度      超过 STALE_SEC 没更新就标记过期，旧候选仍可用
-```
-
-不能混成一个绿点 —— 容器在跑不代表服务能打开，快照过期也不代表容器被删了。
-
-### 不打标签也能用
-
-采集器把**有端口映射的运行中容器**都列为候选，不打任何标签也能在界面上勾选收录。
-
-```
-会出现在待收录                    不会出现
-──────────────────────────────────────────────────────
-运行中                            已停止 / 已退出
-有端口映射                         只有内部端口（数据库这类）
-                                  justnav 自己
-                                  带 nav.hide=true 的容器
-```
-
-### 想更精确就打标签（可选增强）
+不打标签也能用——有端口映射的容器都会进「待收录」，勾一下就行。
+想控制名字和图标就打：
 
 ```
 nav.enable=true
 nav.name=Jellyfin
 nav.url=http://192.168.1.10:8096
-nav.url.external=https://jellyfin.example.com
 nav.icon=film
 nav.group=影音媒体
 ```
 
-**标签只是建议，不是命令**：发现的服务进「待收录」，人工确认才进首页；
-容器删了，已收录条目只置灰，不会自动消失。
+详细的安全分析在 [`docs/docker-socket-security.md`](docs/docker-socket-security.md)。
 
 ---
 
