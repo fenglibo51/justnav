@@ -20,7 +20,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 BIN_DIR="${REPO_ROOT}/bin"
 COMPOSE_FILE="${REPO_ROOT}/compose.selfhost.yaml"
-HEALTH_URL="${JUSTNAV_HEALTH_URL:-http://127.0.0.1:8524/api/health}"
+HEALTH_URL="${JUSTNAV_HEALTH_URL:-http://192.168.6.40:8524/api/health}"
 
 RESTART=1
 for arg in "$@"; do
@@ -66,11 +66,21 @@ echo "→ 已写入 ${BIN_DIR}/{justnav,justnav-discovery}"
 [ "$RESTART" = "1" ] || { echo "→ --no-restart，跳过部署"; exit 0; }
 
 # ---- 部署 ----
+# compose up -d 只在【配置变了】的时候才重建容器。
+# 平时只换了 bin 里的二进制，挂载和配置都没变，它就给你一句 Running 什么都不做
+# —— 进程还在跑旧的内存映像，你会以为部署失败。
+# 所以 compose 之后必须显式 restart，让进程重新 exec 新文件。
 echo "→ compose up -d"
 docker compose -f "$COMPOSE_FILE" up -d
 
+echo "→ restart 让新二进制生效"
+docker restart justnav justnav-discovery >/dev/null
+
 # ---- 自检 ----
-for i in $(seq 1 15); do
+# 默认走 NAS 的内网地址，不是 127.0.0.1：
+#   这个脚本可能在 Hermes 容器里执行，那边的 127.0.0.1 是它自己，必然连不上。
+#   在 NAS 本机跑也照样通（NAS 认自己的 LAN IP）。
+for i in $(seq 1 20); do
   sleep 1
   body="$(curl -s --noproxy '*' -m 5 "$HEALTH_URL" 2>/dev/null || true)"
   if [ -n "$body" ]; then
