@@ -1,0 +1,111 @@
+# JustNav —— 自用 / 开发部署（8524）
+#
+# ⚠️ 这不是给别人的配置。别人用 compose.yaml（拉 GHCR 镜像，8522）。
+#    想要完全隔离的试验场就临时起 8522 那套，验完 down 掉。
+#
+# 跟 compose.yaml 的区别，只有两处，但都是要害：
+#
+#   ① 代码从挂载来，不从镜像来
+#      镜像（justnav:local）只是个 scratch 壳：一份没人执行的旧二进制 + ca 证书，
+#      除此之外空的。真正跑的代码是 bin/justnav 这个实体文件。
+#      改完代码 → scripts/dev-deploy.sh → 替换 bin → restart，秒级生效，
+#      不需要 docker build（省掉起临时容器编译的那 30~60 秒）。
+#
+#   ② entrypoint 必须覆盖成 /app/justnav
+#      镜像自带的 ENTRYPOINT 是 /justnav（镜像里那份旧二进制）。
+#      不覆盖就会【静默地】跑镜像里的旧代码 —— 症状是「改的东西全没了」，
+#      而你会去查代码、查缓存，白查一轮。
+#
+# 路径全部写绝对路径：这个文件可能从项目目录、也可能从别处被调用，
+# 相对路径 ./bin 会随着当前工作目录飘，一换目录就挂到空目录上，
+# 表现出来就是「二进制明明换了但没生效」。
+#
+# 启动：docker compose -f compose.selfhost.yaml up -d
+
+services:
+  justnav:
+    image: justnav:local
+    container_name: justnav
+    restart: unless-stopped
+    # 跑 bin 挂载里的实体文件，而不是镜像里烤的 /justnav
+    entrypoint: ["/app/justnav"]
+    ports:
+      - "8524:8524"
+    environment:
+      TZ: Asia/Shanghai
+      JUSTNAV_PORT: "8524"
+      JUSTNAV_DATA_DIR: /data
+      JUSTNAV_SITE_NAME: JustNav
+      JUSTNAV_WALLPAPER: "true"
+      JUSTNAV_WALLPAPER_KEEP_DAYS: "30"
+      JUSTNAV_WALLPAPER_MAX_BYTES: "314572800"
+      JUSTNAV_PROBE: "true"
+      JUSTNAV_PROBE_INTERVAL_SEC: "60"
+      JUSTNAV_PROBE_TIMEOUT_SEC: "4"
+      JUSTNAV_PROBE_THRESHOLD: "2"
+      JUSTNAV_PROBE_INSECURE: "true"
+      # ---- Docker 自动发现（快照架构）----
+      # 主程序不挂 socket，只读采集器写出来的 JSON。
+      JUSTNAV_DISCOVERY_FILE: /run/justnav-discovery/containers.json
+      JUSTNAV_DISCOVERY_STALE_SEC: "60"
+      # 没打 nav.* 标签、但有端口映射的运行容器也列进「待收录」
+      JUSTNAV_DOCKER_SCAN_ALL: "true"
+      # 内网地址：给「待收录」拼候选地址用（走反代时不能拿域名拼）
+      JUSTNAV_INTERNAL_HOST: "192.168.6.40"
+      # 登录认证
+      JUSTNAV_AUTH: "true"
+      JUSTNAV_USER: admin
+      # 只在 users.json 无账号时首次生效，之后改这里没用
+      JUSTNAV_PASSWORD: "${JUSTNAV_PASSWORD:-}"
+      # 走 HTTPS 反代时改成 true（cookie 加 Secure）
+      JUSTNAV_COOKIE_SECURE: "false"
+    volumes:
+      # 编译产物直接落在项目里 —— 这就是「本地改了立刻能验」的那条线
+      - /volume1/work/projects/public/justnav/bin:/app:ro
+      - /volume1/docker/justnav/data:/data:rw
+      # 只读挂快照。主程序写不了，只有 discovery 能写。
+      - justnav_discovery:/run/justnav-discovery:ro
+    # ★ 这里不挂 /var/run/docker.sock。
+    #   Docker API 没有只读概念，读容器列表和创建特权容器走同一个 socket，
+    #   `:ro` 只挡写文件、不挡 API 调用 —— 挂上去就等于把宿主机 root
+    #   交给一个对外的 Web 应用。调 API 的事整个搬到下面的 discovery。
+
+  # ------------------------------------------------------------------
+  # 采集器：唯一持有 Docker Socket 的进程
+  #
+  # 刻意做成「什么都干不了」：
+  #   没有 HTTP 服务（network_mode: none，压根没网卡）
+  #   没有 shell/curl/docker CLI（跑的是挂进来的静态二进制）
+  #   根文件系统只读、capabilities 全丢、禁止提权
+  #   API 路径写死成 GET /containers/json，不接受外部输入
+  #   只输出白名单字段（Env / Mounts / HostConfig 一个字节都不写）
+  #
+  # ⚠️ 但它仍然持有完整 Docker 权限 —— 这是 Docker API 的固有特性。
+  #    本方案缩小的是「被利用后能干什么」，不是「权限本身」。
+  # ------------------------------------------------------------------
+  justnav-discovery:
+    image: alpine:latest
+    container_name: justnav-discovery
+    restart: unless-stopped
+    network_mode: none
+    read_only: true
+    cap_drop: [ALL]
+    security_opt:
+      - no-new-privileges:true
+    entrypoint: ["/app/justnav-discovery"]
+    environment:
+      TZ: Asia/Shanghai
+      JUSTNAV_DISCOVERY_OUT: /out/containers.json
+      JUSTNAV_DISCOVERY_INTERVAL_SEC: "15"
+    tmpfs:
+      - /tmp
+    volumes:
+      - /volume1/work/projects/public/justnav/bin:/app:ro
+      # :ro 只限制「文件能不能被写」，不限制 Docker API 能干什么。
+      # 加它是防止采集器意外破坏 socket 文件本身。
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+      # 只有这个服务对共享卷有写权限
+      - justnav_discovery:/out
+
+volumes:
+  justnav_discovery:

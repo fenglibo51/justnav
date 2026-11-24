@@ -157,7 +157,12 @@ grep -Fq -- 'entrypoint: ["/app/justnav"]' compose.yaml \
   && bad "正式 compose 还在覆盖 entrypoint（镜像里没这个路径）" || ok "正式 compose 不覆盖 entrypoint"
 grep -q 'build:' compose.yaml && bad "正式 compose 里不该有 build" || ok "正式 compose 用发布镜像，不本地构建"
 grep -Fq -- 'ghcr.io/fenglibo51/justnav:' compose.yaml && ok "正式 compose 用 GHCR 镜像" || bad "正式 compose 没指向 GHCR"
-[ -f compose.dev.yaml ] && ok "有独立的开发 compose" || bad "开发/正式混在一个文件里"
+[ -f compose.selfhost.yaml ] && ok "有独立的自用 compose（bin 挂载）" || bad "自用/正式混在一个文件里"
+grep -Fq -- 'entrypoint: ["/app/justnav"]' compose.selfhost.yaml \
+  && ok "自用 compose 覆盖了 entrypoint" \
+  || bad "自用 compose 没覆盖 entrypoint —— 会静默跑镜像里烤的旧二进制"
+grep -Fq -- ':/app:ro' compose.selfhost.yaml \
+  && ok "自用 compose 把 bin 挂到 /app" || bad "自用 compose 没挂 bin"
 [ -f .dockerignore ] && ok "有 .dockerignore" || bad "缺 .dockerignore（构建上下文会带上 .git 和 data）"
 grep -q '^\.git$' .dockerignore && ok ".dockerignore 排除了 .git" || bad ".dockerignore 没排除 .git"
 grep -q '^data$' .dockerignore && ok ".dockerignore 排除了 data" || bad ".dockerignore 没排除 data"
